@@ -29,6 +29,12 @@ export interface Topic {
   phase_id: string;
   name: string;
   order: number;
+  maxTime?: number;
+  keyTags?: string[];
+  deliverable?: string;
+  icon?: string;
+  technologies?: string[];
+  description?: string;
   created_at: Date;
 }
 

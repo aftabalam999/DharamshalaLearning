@@ -13,28 +13,65 @@ export class DataSeedingService {
         return true;
       }
 
-      // Create phases
-      const createdPhaseIds = [];
-      for (const phaseData of initialPhases) {
-        const phaseId = await PhaseService.createPhase({
-          ...phaseData,
-          created_at: new Date()
-        });
-        createdPhaseIds.push({ id: phaseId, name: phaseData.name });
-        console.log(`Created phase: ${phaseData.name}`);
-      }
+      // Import all phase/topic files
+      const phaseFiles = [
+        require('../data/initialData'),
+        require('../data/phase3Topics'),
+        require('../data/phase4Topics'),
+        require('../data/phase5Topics'),
+        require('../data/phase6Topics'),
+        require('../data/phase7Topics')
+      ];
 
-      // Create topics for each phase
-      for (const phaseInfo of createdPhaseIds) {
-        const topicsForPhase = initialTopics[phaseInfo.name];
-        if (topicsForPhase) {
-          for (const topicData of topicsForPhase) {
-            await TopicService.createTopic({
-              ...topicData,
-              phase_id: phaseInfo.id,
+      // Seed all phases and topics
+      for (const phaseFile of phaseFiles) {
+        // For initialData, use initialPhases and detailedTopics
+        if (phaseFile.initialPhases && phaseFile.detailedTopics) {
+          for (const phaseData of phaseFile.initialPhases) {
+            const phaseId = await PhaseService.createPhase({
+              ...phaseData,
               created_at: new Date()
             });
-            console.log(`Created topic: ${topicData.name} for phase: ${phaseInfo.name}`);
+            console.log(`Created phase: ${phaseData.name}`);
+            const topicsForPhase = phaseFile.detailedTopics[phaseData.name];
+            if (topicsForPhase) {
+              for (const topicData of topicsForPhase) {
+                await TopicService.createTopic({
+                  ...topicData,
+                  phase_id: phaseId,
+                  created_at: new Date()
+                });
+                console.log(`Created topic: ${topicData.name} for phase: ${phaseData.name}`);
+              }
+            }
+          }
+        }
+        // For phase3-7 files, use exported array
+        const phaseMap = [
+          { arr: phaseFile.phase3Topics, name: 'Phase 3: Interactive Quiz Master' },
+          { arr: phaseFile.phase4Topics, name: 'Phase 4: AI-Powered Content Generator' },
+          { arr: phaseFile.phase5Topics, name: 'Phase 5: Ask Gemini Web App' },
+          { arr: phaseFile.phase6Topics, name: 'Phase 6: Student Feedback Manager' },
+          { arr: phaseFile.phase7Topics, name: 'Phase 7: CollabSphere' }
+        ];
+        for (const { arr, name } of phaseMap) {
+          if (arr && arr.length > 0) {
+            const phaseData = {
+              name,
+              start_date: new Date(),
+              end_date: new Date(),
+              order: arr[0]?.order || 1,
+              created_at: new Date()
+            };
+            const phaseId = await PhaseService.createPhase(phaseData);
+            for (const topicData of arr) {
+              await TopicService.createTopic({
+                ...topicData,
+                phase_id: phaseId,
+                created_at: new Date()
+              });
+              console.log(`Created topic: ${topicData.name} for phase: ${name}`);
+            }
           }
         }
       }

@@ -7,7 +7,7 @@ import {
 } from '../../services/dataServices';
 import { DataSeedingService } from '../../services/dataSeedingService';
 import { Phase, Topic, DailyGoal, GoalFormData } from '../../types';
-import { goalTemplates, achievementLevels } from '../../data/initialData';
+import { goalTemplates, achievementLevels, getTopicDetails, TopicDetails } from '../../data/initialData';
 import { 
   Target, 
   TrendingUp, 
@@ -36,6 +36,8 @@ const GoalSetting: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
+  const [selectedPhase, setSelectedPhase] = useState<Phase | null>(null);
+  const [topicDetails, setTopicDetails] = useState<TopicDetails | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [dataStatus, setDataStatus] = useState({ phasesCount: 0, topicsCount: 0, isSeeded: false });
@@ -151,11 +153,27 @@ const GoalSetting: React.FC = () => {
       [name]: name === 'target_percentage' ? Number(value) : value
     }));
 
-    // If topic is selected, load topic details for templates
+    // If phase is selected, load phase details
+    if (name === 'phase_id' && value) {
+      try {
+        const phase = await PhaseService.getPhaseById(value);
+        setSelectedPhase(phase);
+      } catch (error) {
+        console.error('Error loading phase details:', error);
+      }
+    }
+
+    // If topic is selected, load topic details for templates and additional info
     if (name === 'topic_id' && value) {
       try {
         const topic = await TopicService.getTopicById(value);
         setSelectedTopic(topic);
+        
+        // Get detailed topic information if phase is selected
+        if (selectedPhase && topic) {
+          const details = getTopicDetails(selectedPhase.name, topic.name);
+          setTopicDetails(details);
+        }
       } catch (error) {
         console.error('Error loading topic details:', error);
       }
@@ -332,6 +350,66 @@ const GoalSetting: React.FC = () => {
                 </select>
               </div>
             </div>
+
+            {/* Topic Details Section */}
+            {topicDetails && (
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                <div className="flex items-center space-x-2 mb-3">
+                  <span className="text-2xl">{topicDetails.icon}</span>
+                  <h3 className="text-lg font-semibold text-blue-900">Topic Details</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                  <div>
+                    <p className="font-medium text-blue-800 mb-1">⏱️ Max Time</p>
+                    <p className="text-blue-700">
+                      {topicDetails.maxTime > 0 ? `${topicDetails.maxTime} minutes` : 'Flexible timing'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-blue-800 mb-1">📹 Deliverable</p>
+                    <p className="text-blue-700">{topicDetails.deliverable}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                  <div>
+                    <p className="font-medium text-blue-800 mb-1">🏷️ New HTML Tags to be Used</p>
+                    <div className="flex flex-wrap gap-1">
+                      {topicDetails.keyTags.map((tag, index) => (
+                        <span
+                          key={index}
+                          className="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-medium text-blue-800 mb-1">🛠️ New Technologies to be Used</p>
+                    <div className="flex flex-wrap gap-1">
+                      {topicDetails.technologies && topicDetails.technologies.length > 0 ? (
+                        topicDetails.technologies.map((tech, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded"
+                          >
+                            {tech}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-500">N/A</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <p className="font-medium text-blue-800 mb-1">� Detailed Description / Focus Area</p>
+                  <p className="text-blue-700">
+                    {topicDetails.description || 'No description provided.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between mb-2">

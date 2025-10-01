@@ -1,0 +1,11 @@
+// All curriculum phase/topic files are saved here for backup and version control.
+// This file lists the curriculum files for phases 1-7.
+
+// Phase 1 & 2: src/data/initialData.ts
+// Phase 3: src/data/phase3Topics.ts
+// Phase 4: src/data/phase4Topics.ts
+// Phase 5: src/data/phase5Topics.ts
+// Phase 6: src/data/phase6Topics.ts
+// Phase 7: src/data/phase7Topics.ts
+
+// You can edit, restore, or migrate these files as needed.
