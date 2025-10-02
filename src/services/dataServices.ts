@@ -19,7 +19,11 @@ export class PhaseService extends FirestoreService {
   }
 
   static async getAllPhases(): Promise<Phase[]> {
-    return this.getAll<Phase>(COLLECTIONS.PHASES, 'order', 'asc');
+    // Get all phases without ordering (since data is small)
+    const phases = await this.getAll<Phase>(COLLECTIONS.PHASES);
+
+    // Sort by order client-side
+    return phases.sort((a, b) => a.order - b.order);
   }
 
   static async getPhaseById(id: string): Promise<Phase | null> {
