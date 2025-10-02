@@ -69,14 +69,16 @@ export class GoalService extends FirestoreService {
   }
 
   static async getGoalsByStudent(studentId: string, limit?: number): Promise<DailyGoal[]> {
-    return this.getWhere<DailyGoal>(
+    // Get goals without ordering to avoid composite index requirement
+    const goals = await this.getWhere<DailyGoal>(
       COLLECTIONS.DAILY_GOALS,
       'student_id',
       '==',
-      studentId,
-      'created_at',
-      'desc'
+      studentId
     );
+
+    // Sort by created_at desc client-side
+    return goals.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   }
 
   static async getTodaysGoal(studentId: string): Promise<DailyGoal | null> {
