@@ -101,8 +101,12 @@ export class GoalService extends FirestoreService {
 
     // Filter for today's goals client-side
     const todaysGoals = allGoals.filter(goal => {
-      const goalTimestamp = Timestamp.fromDate(goal.created_at);
-      return goalTimestamp >= startTimestamp && goalTimestamp < endTimestamp;
+      // goal.created_at is actually a Firestore Timestamp at runtime
+      const goalTimestamp = goal.created_at as any;
+      const goalTime = goalTimestamp.toMillis ? goalTimestamp.toMillis() : goalTimestamp.getTime();
+      const startTime = startTimestamp.toMillis();
+      const endTime = endTimestamp.toMillis();
+      return goalTime >= startTime && goalTime < endTime;
     });
 
     return todaysGoals.length > 0 ? todaysGoals[0] : null;
