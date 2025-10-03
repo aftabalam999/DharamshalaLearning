@@ -454,3 +454,98 @@ export class MentorNotesService extends FirestoreService {
     return this.update<MentorNote>(COLLECTIONS.MENTOR_NOTES, id, noteData);
   }
 }
+
+// Admin Service
+export class AdminService extends FirestoreService {
+  // Get all users with optional filtering
+  static async getAllUsers(): Promise<any[]> {
+    return this.getAll<any>(COLLECTIONS.USERS, 'created_at', 'desc');
+  }
+
+  // Update user admin status
+  static async updateUserAdminStatus(userId: string, isAdmin: boolean): Promise<void> {
+    return this.update<any>(COLLECTIONS.USERS, userId, { isAdmin });
+  }
+
+  // Assign mentor to student
+  static async assignMentor(studentId: string, mentorId: string): Promise<void> {
+    return this.update<any>(COLLECTIONS.USERS, studentId, { 
+      mentor_id: mentorId,
+      updated_at: new Date()
+    });
+  }
+
+  // Get students without mentors
+  static async getStudentsWithoutMentor(): Promise<any[]> {
+    const allUsers = await this.getAllUsers();
+    return allUsers.filter(user => !user.mentor_id && !user.isAdmin);
+  }
+
+  // Get potential mentors (students who can mentor others)
+  static async getPotentialMentors(): Promise<any[]> {
+    const allUsers = await this.getAllUsers();
+    // Return all non-admin users who could potentially be mentors
+    return allUsers.filter(user => !user.isAdmin);
+  }
+
+  // Get students by mentor
+  static async getStudentsByMentor(mentorId: string): Promise<any[]> {
+    return this.getWhere<any>(COLLECTIONS.USERS, 'mentor_id', '==', mentorId);
+  }
+
+  // Get student's current phase (based on latest goal)
+  static async getStudentCurrentPhase(studentId: string): Promise<string | null> {
+    const goals = await GoalService.getGoalsByStudent(studentId, 1);
+    return goals.length > 0 ? goals[0].phase_id : null;
+  }
+
+  // Get suggested mentors for a student based on phase progression
+  static async getSuggestedMentors(studentId: string): Promise<any[]> {
+    try {
+      // Get student's current phase
+      const studentPhaseId = await this.getStudentCurrentPhase(studentId);
+      
+      if (!studentPhaseId) {
+        // If no phase, return all potential mentors
+        return this.getPotentialMentors();
+      }
+
+      // Get all phases to determine phase order
+      const phases = await PhaseService.getAllPhases();
+      const studentPhase = phases.find(p => p.id === studentPhaseId);
+      
+      if (!studentPhase) {
+        return this.getPotentialMentors();
+      }
+
+      // Get all potential mentors
+      const allPotentialMentors = await this.getPotentialMentors();
+      
+      // Get current phase for each mentor and filter
+      const mentorsWithPhases = await Promise.all(
+        allPotentialMentors.map(async (mentor) => {
+          const mentorPhaseId = await this.getStudentCurrentPhase(mentor.id);
+          const mentorPhase = mentorPhaseId ? phases.find(p => p.id === mentorPhaseId) : null;
+          
+          return {
+            ...mentor,
+            currentPhaseId: mentorPhaseId,
+            currentPhaseOrder: mentorPhase?.order || 0,
+            currentPhaseName: mentorPhase?.name || 'Not Started'
+          };
+        })
+      );
+
+      // Filter mentors who are on the same phase or higher (higher order)
+      const suggestedMentors = mentorsWithPhases.filter(
+        mentor => mentor.currentPhaseOrder >= studentPhase.order
+      );
+
+      // Sort by phase order (descending) - more advanced mentors first
+      return suggestedMentors.sort((a, b) => b.currentPhaseOrder - a.currentPhaseOrder);
+    } catch (error) {
+      console.error('Error getting suggested mentors:', error);
+      return this.getPotentialMentors();
+    }
+  }
+}
