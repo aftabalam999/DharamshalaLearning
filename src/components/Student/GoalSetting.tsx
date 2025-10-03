@@ -29,6 +29,7 @@ const GoalSetting: React.FC = () => {
   // Core state
   const [phases, setPhases] = useState<Phase[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [todaysGoal, setTodaysGoal] = useState<DailyGoal | null>(null);
   const [todaysReflection, setTodaysReflection] = useState<DailyReflection | null>(null);
   const [formData, setFormData] = useState<GoalFormData>({
@@ -54,6 +55,7 @@ const GoalSetting: React.FC = () => {
   const loadInitialData = useCallback(async () => {
     if (!userData?.id) return;
     
+    setIsLoading(true);
     try {
       const [phasesData, goalData] = await Promise.all([
         PhaseService.getAllPhases(),
@@ -79,6 +81,8 @@ const GoalSetting: React.FC = () => {
     } catch (error) {
       console.error('Error loading initial data:', error);
       setError('Failed to load data. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   }, [userData?.id]);
 
@@ -339,7 +343,17 @@ const GoalSetting: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="bg-white shadow-sm rounded-lg">
+      <div className="bg-white shadow-sm rounded-lg relative">
+        {isLoading && (
+          <div className="absolute top-0 left-0 right-0">
+            <div className="h-1 bg-primary-100 overflow-hidden rounded-t-lg">
+              <div 
+                className="h-1 bg-primary-500 transition-all duration-500 ease-in-out animate-progress"
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+        )}
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-primary-100 rounded-lg">

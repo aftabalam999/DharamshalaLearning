@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DataSeedingService } from '../../services/dataSeedingService';
 import AdminUserManagement from './AdminUserManagement';
 import MentorAssignment from './MentorAssignment';
+import CurriculumAdminPanel from './CurriculumAdminPanel';
 import { 
   Database, 
   RefreshCw, 
@@ -13,7 +14,7 @@ import {
   Settings
 } from 'lucide-react';
 
-type TabType = 'overview' | 'users' | 'mentors' | 'reports';
+type TabType = 'overview' | 'users' | 'mentors' | 'reports' | 'curriculum';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -66,6 +67,7 @@ const AdminDashboard: React.FC = () => {
     { id: 'users' as TabType, label: 'User Management', icon: Users },
     { id: 'mentors' as TabType, label: 'Mentor Assignment', icon: UserCheck },
     { id: 'reports' as TabType, label: 'Reports', icon: BarChart3 },
+    { id: 'curriculum' as TabType, label: 'Curriculum', icon: Database },
   ];
 
   if (loading) {
@@ -260,6 +262,12 @@ const AdminDashboard: React.FC = () => {
           {activeTab === 'mentors' && (
             <div className="p-6">
               <MentorAssignment />
+            </div>
+          )}
+
+          {activeTab === 'curriculum' && (
+            <div className="p-6">
+              <CurriculumAdminPanel />
             </div>
           )}
 

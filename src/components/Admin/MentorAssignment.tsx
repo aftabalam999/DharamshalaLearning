@@ -18,6 +18,7 @@ interface StudentWithMentor {
   mentor_id?: string;
   currentPhaseName?: string;
   currentPhaseOrder?: number;
+  house?: string;
 }
 
 interface SuggestedMentor {
@@ -27,6 +28,7 @@ interface SuggestedMentor {
   currentPhaseName: string;
   currentPhaseOrder: number;
   currentPhaseId: string | null;
+  house?: string;
 }
 
 const MentorAssignment: React.FC = () => {
@@ -37,7 +39,11 @@ const MentorAssignment: React.FC = () => {
   const [loadingMentors, setLoadingMentors] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [mentorSearchTerm, setMentorSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'with_mentor' | 'without_mentor'>('all');
+  const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
+  
+  const houses = ['Bageshree', 'Malhar', 'Bhairav'];
 
   useEffect(() => {
     loadStudents();
@@ -275,9 +281,48 @@ const MentorAssignment: React.FC = () => {
               {selectedStudent ? `Suggested Mentors for ${selectedStudent.name}` : 'Select a student to see suggested mentors'}
             </h3>
             {selectedStudent && (
-              <p className="text-sm text-gray-600 mt-1">
-                Student is currently in: <span className="font-medium">{selectedStudent.currentPhaseName}</span>
-              </p>
+              <>
+                <p className="text-sm text-gray-600 mt-1">
+                  Student is currently in: <span className="font-medium">{selectedStudent.currentPhaseName}</span>
+                </p>
+                <div className="space-y-3 mt-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search mentors..."
+                      value={mentorSearchTerm}
+                      onChange={(e) => setMentorSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setSelectedHouse(null)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        selectedHouse === null
+                          ? 'bg-primary-100 text-primary-700'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      All Houses
+                    </button>
+                    {houses.map(house => (
+                      <button
+                        key={house}
+                        onClick={() => setSelectedHouse(house)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          selectedHouse === house
+                            ? 'bg-primary-100 text-primary-700'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {house}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
@@ -291,13 +336,30 @@ const MentorAssignment: React.FC = () => {
               <div className="p-8 flex items-center justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
               </div>
-            ) : suggestedMentors.length === 0 ? (
+            ) : suggestedMentors.length === 0 || 
+              (mentorSearchTerm && !suggestedMentors.some(mentor => 
+                mentor.name.toLowerCase().includes(mentorSearchTerm.toLowerCase()) ||
+                mentor.email.toLowerCase().includes(mentorSearchTerm.toLowerCase()) ||
+                mentor.currentPhaseName.toLowerCase().includes(mentorSearchTerm.toLowerCase())
+              )) ? (
               <div className="p-8 text-center text-gray-500">
                 <AlertCircle className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                <p>No mentors available for this student</p>
+                <p>
+                  {mentorSearchTerm 
+                    ? 'No mentors found matching your search'
+                    : 'No mentors available for this student'
+                  }
+                </p>
               </div>
             ) : (
-              suggestedMentors.map((mentor) => (
+              suggestedMentors
+                .filter(mentor => 
+                  (mentor.name.toLowerCase().includes(mentorSearchTerm.toLowerCase()) ||
+                   mentor.email.toLowerCase().includes(mentorSearchTerm.toLowerCase()) ||
+                   mentor.currentPhaseName.toLowerCase().includes(mentorSearchTerm.toLowerCase())) &&
+                  (!selectedHouse || mentor.house === selectedHouse)
+                )
+                .map((mentor) => (
                 <div key={mentor.id} className="p-4 hover:bg-gray-50">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

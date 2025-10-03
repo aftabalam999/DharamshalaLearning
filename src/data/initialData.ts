@@ -15,6 +15,13 @@ export interface TopicDetails {
 // Initial phases for the campus learning program
 export const initialPhases: Omit<Phase, 'id' | 'created_at'>[] = [
   {
+    name: 'Super mentor Phase',
+    start_date: new Date('2025-01-01'),
+    end_date: new Date('2025-12-31'),
+    order: -1,
+    isSenior: true
+  },
+  {
     name: 'Phase 0: Foundation',
     start_date: new Date('2024-09-01'),
     end_date: new Date('2024-10-26'),
@@ -36,6 +43,48 @@ export const initialPhases: Omit<Phase, 'id' | 'created_at'>[] = [
 
 // Detailed topic information with project specifications
 export const detailedTopics: { [phaseName: string]: TopicDetails[] } = {
+  'Super mentor Phase': [
+    {
+      name: 'Module 4',
+      order: 1,
+      maxTime: 120,
+      keyTags: ['Advanced Concepts'],
+      deliverable: 'Complete Module 4 assignments',
+      icon: '⭐',
+      technologies: ['Mentor Guidance'],
+      description: 'Advanced learning and mentorship activities for Module 4.'
+    },
+    {
+      name: 'Module 5',
+      order: 2,
+      maxTime: 120,
+      keyTags: ['Advanced Concepts'],
+      deliverable: 'Complete Module 5 assignments',
+      icon: '⭐',
+      technologies: ['Mentor Guidance'],
+      description: 'Advanced learning and mentorship activities for Module 5.'
+    },
+    {
+      name: 'Module 6',
+      order: 3,
+      maxTime: 120,
+      keyTags: ['Advanced Concepts'],
+      deliverable: 'Complete Module 6 assignments',
+      icon: '⭐',
+      technologies: ['Mentor Guidance'],
+      description: 'Advanced learning and mentorship activities for Module 6.'
+    },
+    {
+      name: 'React Bootcamp',
+      order: 4,
+      maxTime: 180,
+      keyTags: ['React', 'Bootcamp'],
+      deliverable: 'Complete React Bootcamp project',
+      icon: '⚛️',
+      technologies: ['React', 'Mentor Guidance'],
+      description: 'Intensive React bootcamp for advanced students.'
+    }
+  ],
   'Phase 0: Foundation': [
     {
       name: 'Mathematics Fundamentals',

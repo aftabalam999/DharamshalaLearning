@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserService } from '../../services/firestore';
+import { NotificationService } from '../../services/notificationService';
 import { 
   Home,
   Target,
@@ -25,34 +26,8 @@ interface NavItem {
   icon: React.ComponentType<any>;
   adminOnly?: boolean;
   mobileLabel?: string;
+  notificationCount?: number;
 }
-
-const navigationItems: NavItem[] = [
-  {
-    label: 'Dashboard',
-    mobileLabel: 'Home',
-    path: '/student/dashboard',
-    icon: Home
-  },
-  {
-    label: 'Goals & Reflections',
-    mobileLabel: 'Goals',
-    path: '/goals',
-    icon: Target
-  },
-  {
-    label: 'Journey',
-    mobileLabel: 'Journey',
-    path: '/journey',
-    icon: TrendingUp
-  },
-  {
-    label: 'Mentor',
-    mobileLabel: 'Mentor',
-    path: '/mentor/dashboard',
-    icon: Users
-  }
-];
 
 interface NavigationProps {
   isMobileMenuOpen: boolean;
@@ -64,10 +39,55 @@ const Navigation: React.FC<NavigationProps> = ({
   setIsMobileMenuOpen
 }) => {
   const { userData, setUserData, signOut } = useAuth();
+  const [pendingCount, setPendingCount] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Fetch pending actions count
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      if (userData?.id && userData.isMentor) {
+        const count = await NotificationService.getPendingMentorActions([userData.id]);
+        setPendingCount(count);
+      }
+    };
+    
+    fetchPendingCount();
+    // Set up interval to check periodically
+    const interval = setInterval(fetchPendingCount, 60000); // Check every minute
+    
+    return () => clearInterval(interval);
+  }, [userData?.id, userData?.isMentor]);
+
+  const navigationItems: NavItem[] = [
+    {
+      label: 'Dashboard',
+      mobileLabel: 'Home',
+      path: '/student/dashboard',
+      icon: Home
+    },
+    {
+      label: 'Goals & Reflections',
+      mobileLabel: 'Goals',
+      path: '/goals',
+      icon: Target
+    },
+    {
+      label: 'Journey',
+      mobileLabel: 'Journey',
+      path: '/journey',
+      icon: TrendingUp
+    },
+    {
+      label: 'Mentor',
+      mobileLabel: 'Mentor',
+      path: '/mentor/dashboard',
+      icon: Users,
+      notificationCount: (userData?.isMentor && pendingCount > 0) ? pendingCount : undefined
+    }
+  ];
 
   const handleSignOut = async () => {
     try {
@@ -113,7 +133,7 @@ const Navigation: React.FC<NavigationProps> = ({
                     <Link
                       key={item.path}
                       to={item.path}
-                      className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors relative ${
                         isActive(item.path)
                           ? 'bg-primary-50 text-primary-700'
                           : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
@@ -121,6 +141,11 @@ const Navigation: React.FC<NavigationProps> = ({
                     >
                       <Icon className="h-4 w-4 mr-2" />
                       {item.label}
+                      {item.notificationCount !== undefined && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full min-w-[20px] text-center">
+                          {item.notificationCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -233,7 +258,7 @@ const Navigation: React.FC<NavigationProps> = ({
                     key={item.path}
                     to={item.path}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className={`flex items-center px-3 py-2 rounded-md text-base font-medium ${
+                    className={`flex items-center px-3 py-2 rounded-md text-base font-medium relative ${
                       isActive(item.path)
                         ? 'bg-primary-50 text-primary-700'
                         : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
@@ -241,6 +266,11 @@ const Navigation: React.FC<NavigationProps> = ({
                   >
                     <Icon className="h-5 w-5 mr-3" />
                     {item.label}
+                    {item.notificationCount !== undefined && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full min-w-[20px] text-center">
+                        {item.notificationCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -320,7 +350,7 @@ const Navigation: React.FC<NavigationProps> = ({
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex flex-col items-center justify-center flex-1 h-full space-y-1 ${
+                className={`flex flex-col items-center justify-center flex-1 h-full space-y-1 relative ${
                   active ? 'text-primary-600' : 'text-gray-600'
                 }`}
               >
@@ -328,6 +358,11 @@ const Navigation: React.FC<NavigationProps> = ({
                 <span className={`text-xs ${active ? 'font-semibold' : 'font-normal'}`}>
                   {item.mobileLabel || item.label}
                 </span>
+                {item.notificationCount !== undefined && (
+                  <span className="absolute -top-1 right-1/4 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full min-w-[20px] text-center">
+                    {item.notificationCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -401,6 +436,52 @@ const Navigation: React.FC<NavigationProps> = ({
                 <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
                   <Building size={20} className="text-gray-600 mt-0.5" />
                   <div className="flex-1">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Campus</p>
+                    <select
+                      value={userData?.campus || ''}
+                      onChange={async (e) => {
+                        const newCampus = e.target.value as "Dantewada" | "Dharamshala" | "Eternal" | "Jashpur" | "Kishanganj" | "Pune" | "Raigarh" | "Sarjapura" | "";
+                        if (userData && !userData.campus) {
+                          try {
+                            await UserService.updateUser(userData.id, {
+                              campus: newCampus || undefined
+                            });
+                            setUserData({
+                              ...userData,
+                              campus: newCampus || undefined
+                            });
+                          } catch (error) {
+                            console.error('Error updating campus:', error);
+                            alert('Failed to update campus. Please contact an admin for changes.');
+                          }
+                        }
+                      }}
+                      disabled={!!userData?.campus}
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    >
+                      <option value="">Select Campus</option>
+                      {[
+                        'Dantewada',
+                        'Dharamshala',
+                        'Eternal',
+                        'Jashpur',
+                        'Kishanganj',
+                        'Pune',
+                        'Raigarh',
+                        'Sarjapura'
+                      ].map(campus => (
+                        <option key={campus} value={campus}>{campus}</option>
+                      ))}
+                    </select>
+                    {userData?.campus && (
+                      <p className="mt-1 text-xs text-gray-500">Contact admin to change campus</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                  <Building size={20} className="text-gray-600 mt-0.5" />
+                  <div className="flex-1">
                     <p className="text-xs font-medium text-gray-500 uppercase">House</p>
                     <select
                       value={userData?.house || ''}
@@ -414,7 +495,6 @@ const Navigation: React.FC<NavigationProps> = ({
                               house: newHouse || undefined
                             });
                             console.log('Update successful, updating local state');
-                            // Update local state to show the change immediately
                             setUserData({
                               ...userData,
                               house: newHouse || undefined

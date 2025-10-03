@@ -6,6 +6,7 @@ import { User } from '../types';
 interface AuthContextType {
   currentUser: FirebaseUser | null;
   userData: User | null;
+  setUserData: React.Dispatch<React.SetStateAction<User | null>>;
   loading: boolean;
   signInWithGoogle: () => Promise<FirebaseUser>;
   signOut: () => Promise<void>;
@@ -85,6 +86,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const value: AuthContextType = {
     currentUser,
     userData,
+    setUserData,
     loading,
     signInWithGoogle,
     signOut,

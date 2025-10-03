@@ -4,8 +4,11 @@ export interface User {
   name: string;
   email: string;
   isAdmin?: boolean;    // Only used for admin-specific features
+  isMentor?: boolean;   // Whether the user is a mentor
   mentor_id?: string;   // ID of assigned mentor if student
   skills?: string[];
+  house?: 'Bageshree' | 'Malhar' | 'Bhairav';  // User's assigned house
+  campus?: 'Dantewada' | 'Dharamshala' | 'Eternal' | 'Jashpur' | 'Kishanganj' | 'Pune' | 'Raigarh' | 'Sarjapura';  // User's campus
   created_at: Date;
   updated_at: Date;
 }
@@ -17,6 +20,7 @@ export interface Phase {
   start_date: Date;
   end_date: Date;
   order: number;
+  isSenior?: boolean; // optional flag to mark mentor/senior phases
   created_at: Date;
 }
 

@@ -13,9 +13,9 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
-  "module": "CommonJS",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
+    "module": "CommonJS",
+    "ignoreDeprecations": "6.0"
+  ,"resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx"
