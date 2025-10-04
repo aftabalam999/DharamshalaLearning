@@ -8,7 +8,12 @@ import {
   CheckCircle, 
   AlertCircle,
   UserCheck,
-  Loader
+  Loader,
+  Search,
+  Filter,
+  Home,
+  Building2,
+  BookOpen
 } from 'lucide-react';
 
 interface MentorBrowserProps {
@@ -25,16 +30,28 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
   onRequestSubmitted
 }) => {
   const [mentors, setMentors] = useState<MentorWithCapacity[]>([]);
+  const [filteredMentors, setFilteredMentors] = useState<MentorWithCapacity[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMentor, setSelectedMentor] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [campusFilter, setCampusFilter] = useState<string>('all');
+  const [houseFilter, setHouseFilter] = useState<string>('all');
+  const [availabilityFilter, setAvailabilityFilter] = useState<string>('all'); // all, available, on-leave
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadMentors();
   }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [searchTerm, campusFilter, houseFilter, availabilityFilter, mentors]);
 
   const loadMentors = async () => {
     try {
@@ -53,9 +70,65 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
     }
   };
 
+  const applyFilters = () => {
+    let filtered = [...mentors];
+
+    // Search filter
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(m => 
+        m.mentor.name.toLowerCase().includes(search) ||
+        m.mentor.email.toLowerCase().includes(search)
+      );
+    }
+
+    // Campus filter
+    if (campusFilter !== 'all') {
+      filtered = filtered.filter(m => m.mentor.campus === campusFilter);
+    }
+
+    // House filter
+    if (houseFilter !== 'all') {
+      filtered = filtered.filter(m => m.mentor.house === houseFilter);
+    }
+
+    // Availability filter (based on leave dates)
+    if (availabilityFilter === 'available') {
+      const today = new Date();
+      filtered = filtered.filter(m => {
+        // If no leave dates set, they're available
+        if (!m.mentor.leave_from || !m.mentor.leave_to) return true;
+        
+        const leaveFrom = new Date(m.mentor.leave_from);
+        const leaveTo = new Date(m.mentor.leave_to);
+        
+        // Available if current date is not within leave period
+        return today < leaveFrom || today > leaveTo;
+      });
+    } else if (availabilityFilter === 'on-leave') {
+      const today = new Date();
+      filtered = filtered.filter(m => {
+        if (!m.mentor.leave_from || !m.mentor.leave_to) return false;
+        
+        const leaveFrom = new Date(m.mentor.leave_from);
+        const leaveTo = new Date(m.mentor.leave_to);
+        
+        // On leave if current date is within leave period
+        return today >= leaveFrom && today <= leaveTo;
+      });
+    }
+
+    setFilteredMentors(filtered);
+  };
+
   const handleRequestMentor = async () => {
     if (!selectedMentor) {
       setError('Please select a mentor');
+      return;
+    }
+
+    if (!reason.trim()) {
+      setError('Please provide a reason for the mentor change request');
       return;
     }
 
@@ -67,7 +140,7 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
         currentStudentId,
         selectedMentor,
         currentMentorId,
-        reason || undefined
+        reason
       );
 
       setSuccess('Mentor change request submitted successfully! Waiting for admin approval.');
@@ -117,23 +190,118 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
           </div>
         )}
 
+        {/* Search and Filters */}
+        <div className="px-6 pt-6 space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* Filter Toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Filter className="h-4 w-4 text-gray-600" />
+            <span className="text-sm font-medium text-gray-700">
+              {showFilters ? 'Hide Filters' : 'Show Filters'}
+            </span>
+          </button>
+
+          {/* Filters */}
+          {showFilters && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+              {/* Campus Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Campus
+                </label>
+                <select
+                  value={campusFilter}
+                  onChange={(e) => setCampusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="">All Campuses</option>
+                  <option value="Dharamshala">Dharamshala</option>
+                  <option value="Ambala">Ambala</option>
+                  <option value="Chandigarh">Chandigarh</option>
+                  <option value="Dehradun">Dehradun</option>
+                  <option value="Sangrur">Sangrur</option>
+                  <option value="Firozpur">Firozpur</option>
+                  <option value="Bathinda">Bathinda</option>
+                  <option value="Moga">Moga</option>
+                </select>
+              </div>
+
+              {/* House Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  House
+                </label>
+                <select
+                  value={houseFilter}
+                  onChange={(e) => setHouseFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="">All Houses</option>
+                  <option value="Red">Red</option>
+                  <option value="Blue">Blue</option>
+                  <option value="Yellow">Yellow</option>
+                </select>
+              </div>
+
+              {/* Availability Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Availability
+                </label>
+                <select
+                  value={availabilityFilter}
+                  onChange={(e) => setAvailabilityFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Mentors</option>
+                  <option value="available">Available (Not on Leave)</option>
+                  <option value="on-leave">On Leave</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader className="h-8 w-8 text-primary-600 animate-spin" />
             </div>
-          ) : mentors.length === 0 ? (
+          ) : filteredMentors.length === 0 ? (
             <div className="text-center py-12">
               <Users className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-600">No mentors available</p>
+              <p className="text-gray-600">
+                {searchTerm || campusFilter || houseFilter || availabilityFilter !== 'all'
+                  ? 'No mentors match your filters'
+                  : 'No mentors available'}
+              </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {mentors.map((mentorInfo) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredMentors.map((mentorInfo) => {
                 const isCurrentMentor = mentorInfo.mentor.id === currentMentorId;
                 const hasSlots = mentorInfo.available_slots > 0;
                 const isSelected = selectedMentor === mentorInfo.mentor.id;
+                
+                // Check if mentor is on leave
+                const isOnLeave = mentorInfo.mentor.leave_from && mentorInfo.mentor.leave_to && 
+                  new Date(mentorInfo.mentor.leave_from) <= new Date() && 
+                  new Date(mentorInfo.mentor.leave_to) >= new Date();
 
                 return (
                   <div
@@ -143,100 +311,96 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
                         ? 'border-primary-500 bg-primary-50'
                         : isCurrentMentor
                         ? 'border-blue-300 bg-blue-50'
-                        : hasSlots
+                        : hasSlots && !isOnLeave
                         ? 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 cursor-pointer'
                         : 'border-gray-200 bg-gray-50 opacity-60'
                     }`}
                     onClick={() => {
-                      if (hasSlots && !isCurrentMentor) {
+                      if (hasSlots && !isCurrentMentor && !isOnLeave) {
                         setSelectedMentor(mentorInfo.mentor.id);
                       }
                     }}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">
+                    <div className="space-y-3">
+                      {/* Name and Badges */}
+                      <div>
+                        <div className="flex items-center space-x-2 mb-1">
+                          <h3 className="text-base font-semibold text-gray-900 line-clamp-1">
                             {mentorInfo.mentor.name}
                           </h3>
-                          {mentorInfo.mentor.isSuperMentor && (
-                            <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                          {isSelected && (
+                            <UserCheck className="h-4 w-4 text-primary-600 flex-shrink-0" />
                           )}
-                          {mentorInfo.mentor.isMentor && (
-                            <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-700 rounded">
-                              Mentor
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {mentorInfo.mentor.isSuperMentor && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
+                              <Star className="h-3 w-3 mr-1 fill-yellow-500" />
+                              Super Mentor
                             </span>
                           )}
                           {isCurrentMentor && (
-                            <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded">
-                              Current Mentor
+                            <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded">
+                              Current
+                            </span>
+                          )}
+                          {isOnLeave && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded">
+                              On Leave
                             </span>
                           )}
                         </div>
-                        
-                        <p className="text-sm text-gray-600 mb-3">{mentorInfo.mentor.email}</p>
-                        
-                        {/* Capacity Info */}
-                        <div className="flex items-center space-x-4 mb-3">
-                          <div className="flex items-center space-x-2">
-                            <Users className="h-4 w-4 text-gray-500" />
-                            <span className="text-sm text-gray-700">
-                              {mentorInfo.current_mentees} / {
-                                mentorInfo.mentor.isSuperMentor 
-                                  ? 'Unlimited' 
-                                  : mentorInfo.max_mentees
-                              } mentees
-                            </span>
-                          </div>
-                          
-                          {hasSlots && (
-                            <div className="flex items-center space-x-2">
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                              <span className="text-sm text-green-700 font-medium">
-                                {mentorInfo.mentor.isSuperMentor 
-                                  ? 'Available' 
-                                  : `${mentorInfo.available_slots} slot${mentorInfo.available_slots > 1 ? 's' : ''} available`
-                                }
-                              </span>
-                            </div>
-                          )}
-                          
-                          {!hasSlots && !mentorInfo.mentor.isSuperMentor && (
-                            <div className="flex items-center space-x-2">
-                              <AlertCircle className="h-4 w-4 text-orange-500" />
-                              <span className="text-sm text-orange-700 font-medium">
-                                No slots available
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                      </div>
 
-                        {/* Current Mentees */}
-                        {mentorInfo.mentee_names.length > 0 && (
-                          <div className="bg-white rounded p-3 border border-gray-200">
-                            <p className="text-xs font-medium text-gray-600 mb-2">Current Mentees:</p>
-                            <div className="flex flex-wrap gap-2">
-                              {mentorInfo.mentee_names.map((name, idx) => (
-                                <span
-                                  key={idx}
-                                  className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
-                                >
-                                  {name}
-                                </span>
-                              ))}
-                            </div>
+                      {/* Campus, House, Phase */}
+                      <div className="space-y-1.5 text-xs text-gray-600">
+                        {mentorInfo.mentor.campus && (
+                          <div className="flex items-center space-x-1.5">
+                            <Building2 className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{mentorInfo.mentor.campus}</span>
+                          </div>
+                        )}
+                        {mentorInfo.mentor.house && (
+                          <div className="flex items-center space-x-1.5">
+                            <Home className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{mentorInfo.mentor.house} House</span>
+                          </div>
+                        )}
+                        {mentorInfo.mentor.current_phase_name && (
+                          <div className="flex items-center space-x-1.5">
+                            <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{mentorInfo.mentor.current_phase_name}</span>
                           </div>
                         )}
                       </div>
 
-                      {/* Selection Indicator */}
-                      {isSelected && (
-                        <div className="ml-4">
-                          <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
-                            <UserCheck className="h-5 w-5 text-white" />
-                          </div>
+                      {/* Capacity */}
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                        <div className="flex items-center space-x-1.5">
+                          <Users className="h-3.5 w-3.5 text-gray-400" />
+                          <span className="text-xs text-gray-600">
+                            {mentorInfo.current_mentees}/{mentorInfo.mentor.isSuperMentor ? '∞' : mentorInfo.max_mentees}
+                          </span>
                         </div>
-                      )}
+                        
+                        {hasSlots && !isOnLeave ? (
+                          <span className="text-xs text-green-700 font-medium">
+                            {mentorInfo.mentor.isSuperMentor 
+                              ? 'Available' 
+                              : `${mentorInfo.available_slots} slot${mentorInfo.available_slots > 1 ? 's' : ''}`
+                            }
+                          </span>
+                        ) : isOnLeave ? (
+                          <span className="text-xs text-orange-700 font-medium">
+                            Unavailable
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-500 font-medium">
+                            Full
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -250,13 +414,14 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
           <div className="border-t border-gray-200 p-6 bg-gray-50">
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Reason for change (optional)
+                Reason for change <span className="text-red-500">*</span>
               </label>
               <textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Explain why you want to change your mentor..."
+                placeholder="Explain why you want to change your mentor... (required)"
                 rows={3}
+                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
               />
             </div>

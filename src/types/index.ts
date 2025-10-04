@@ -12,6 +12,10 @@ export interface User {
   skills?: string[];
   house?: 'Bageshree' | 'Malhar' | 'Bhairav';  // User's assigned house
   campus?: 'Dantewada' | 'Dharamshala' | 'Eternal' | 'Jashpur' | 'Kishanganj' | 'Pune' | 'Raigarh' | 'Sarjapura';  // User's campus
+  current_phase_id?: string;  // Current phase the user is on
+  current_phase_name?: string;  // Denormalized phase name for display
+  leave_from?: Date;  // Start date of leave period
+  leave_to?: Date;    // End date of leave period
   created_at: Date;
   updated_at: Date;
 }
