@@ -118,7 +118,7 @@ const Navigation: React.FC<NavigationProps> = ({
                 <Link to="/dashboard" className="flex items-center space-x-2">
                   <div className="w-8 h-8 flex items-center justify-center">
                     <img 
-                      src="/favicon.ico" 
+                      src="/Logomini.png" 
                       alt="CL" 
                       className="w-8 h-8 object-contain"
                     />

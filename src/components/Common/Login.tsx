@@ -102,7 +102,7 @@ const Login: React.FC = () => {
           <div>
             <div className="mx-auto h-24 w-24 flex items-center justify-center">
               <img 
-                src="/logo192.png" 
+                src="/logo.png" 
                 alt="Campus Learning" 
                 className="h-24 w-24 object-contain"
               />
