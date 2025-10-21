@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Clock, AlertCircle, Users, Loader } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Clock, AlertCircle, Users, Loader, ListOrdered } from 'lucide-react';
 import { CampusSchedule, AcademicAssociateAssignment } from '../../types';
+import { UserService, COLLECTIONS } from '../../services/firestore';
 import { AcademicAssociateService } from '../../services/academicAssociateService';
 import AAAssignmentForm from './AAAssignmentForm';
+import QueueViewer from './QueueViewer';
+import QueueManager from './QueueManager';
 
 const CampusScheduleAdmin: React.FC = () => {
   // Campus Schedule State
@@ -31,7 +34,12 @@ const CampusScheduleAdmin: React.FC = () => {
   const [aaSummary, setAASummary] = useState<any[]>([]);
   const [loadingAA, setLoadingAA] = useState(false);
   const [showAAForm, setShowAAForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'schedules' | 'academicAssociates'>('schedules');
+  const [activeTab, setActiveTab] = useState<'schedules' | 'academicAssociates' | 'queues'>('schedules');
+
+  // Queue State
+  const [selectedAA, setSelectedAA] = useState<string | null>(null);
+  const [aaList, setAAList] = useState<any[]>([]);
+  const [queueView, setQueueView] = useState<'viewer' | 'manager'>('viewer');
 
   const dayOptions = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -57,8 +65,29 @@ const CampusScheduleAdmin: React.FC = () => {
           setLoadingAA(false);
         }
       })();
+    } else if (activeTab === 'queues') {
+      // Load list of Academic Associates for queue management
+      (async () => {
+        try {
+          setLoadingAA(true);
+          const allUsers = await UserService.getAll<any>(COLLECTIONS.USERS);
+          const aas = allUsers.filter(
+            (user: any) => user.role === 'academic_associate' && user.campus === selectedCampus
+          );
+          setAAList(aas);
+          // Set first AA as selected if none selected
+          if (!selectedAA && aas.length > 0) {
+            setSelectedAA(aas[0].id);
+          }
+        } catch (error) {
+          console.error('Error loading AA list:', error);
+          setAAList([]);
+        } finally {
+          setLoadingAA(false);
+        }
+      })();
     }
-  }, [activeTab, selectedCampus]);
+  }, [activeTab, selectedCampus, selectedAA]);
 
   const loadAAAssignments = async () => {
     try {
@@ -350,6 +379,17 @@ const CampusScheduleAdmin: React.FC = () => {
           <Users className="h-5 w-5 inline mr-2" />
           Academic Associates
         </button>
+        <button
+          onClick={() => setActiveTab('queues')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'queues'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <ListOrdered className="h-5 w-5 inline mr-2" />
+          Rolling Queues
+        </button>
       </div>
 
       {/* Campus Schedules Tab */}
@@ -435,6 +475,7 @@ const CampusScheduleAdmin: React.FC = () => {
         </>
       )}
 
+      {/* Academic Associates Tab */}
       {/* Academic Associates Tab */}
       {activeTab === 'academicAssociates' && (
         <div className="space-y-6">
@@ -557,6 +598,99 @@ const CampusScheduleAdmin: React.FC = () => {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Rolling Queues Tab */}
+      {activeTab === 'queues' && (
+        <div className="space-y-4">
+          {/* Campus Selector */}
+          <div className="bg-white p-4 rounded border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Campus
+            </label>
+            <select
+              value={selectedCampus}
+              onChange={(e) => {
+                setSelectedCampus(e.target.value);
+                setSelectedAA(null);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="Dharamshala">Dharamshala</option>
+              <option value="Palampur">Palampur</option>
+              <option value="Kangra">Kangra</option>
+            </select>
+          </div>
+
+          {/* AA Selector for Queue View */}
+          <div className="bg-white p-4 rounded border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Academic Associate
+            </label>
+            {loadingAA ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader className="w-5 h-5 animate-spin text-blue-600 mr-2" />
+                <p className="text-gray-600">Loading AAs...</p>
+              </div>
+            ) : aaList.length === 0 ? (
+              <p className="text-gray-600 text-center py-4">No Academic Associates found for this campus</p>
+            ) : (
+              <select
+                value={selectedAA || ''}
+                onChange={(e) => setSelectedAA(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Choose an AA...</option>
+                {aaList.map((aa: any) => (
+                  <option key={aa.id} value={aa.id}>
+                    {aa.name || aa.email}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Queue View Selector */}
+          <div className="bg-white p-4 rounded border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Queue View Mode
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setQueueView('viewer')}
+                className={`flex-1 px-4 py-2 rounded font-medium transition-colors ${
+                  queueView === 'viewer'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Queue Viewer
+              </button>
+              <button
+                onClick={() => setQueueView('manager')}
+                className={`flex-1 px-4 py-2 rounded font-medium transition-colors ${
+                  queueView === 'manager'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Queue Manager
+              </button>
+            </div>
+          </div>
+
+          {/* Queue Content */}
+          <div className="bg-white p-6 rounded border border-gray-200">
+            {queueView === 'viewer' ? (
+              <QueueViewer
+                academicAssociateId={selectedAA || ''}
+                refreshInterval={5000}
+              />
+            ) : (
+              <QueueManager academicAssociateId={selectedAA || ''} />
+            )}
+          </div>
         </div>
       )}
 
