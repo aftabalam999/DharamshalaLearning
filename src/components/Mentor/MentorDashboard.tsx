@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserService } from '../../services/firestore';
-import { GoalService, ReflectionService, AdminService } from '../../services/dataServices';
-import { User, MenteeOverview, DailyGoal, DailyReflection } from '../../types';
+import { GoalService, ReflectionService, AdminService, MenteeReviewService } from '../../services/dataServices';
+import { User, MenteeOverview, DailyGoal, DailyReflection, MenteeReview } from '../../types';
 import {
   Users,
   Target,
@@ -11,7 +11,9 @@ import {
   Bell,
   ArrowRight,
   UserCheck,
-  GraduationCap
+  GraduationCap,
+  Star,
+  AlertCircle
 } from 'lucide-react';
 import MentorCampusTab from '../Admin/MentorCampusTab';
 import { SpinnerLoader } from '../Common/BoltLoaderComponent';
@@ -48,12 +50,41 @@ const MentorDashboard: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [showJoiningDateModal, setShowJoiningDateModal] = useState(false);
+  const [showReviewReminder, setShowReviewReminder] = useState(false);
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
 
   const handleJoiningDateUpdated = useCallback((updatedUser: User) => {
     // Update the user data in auth context
     // This will trigger a re-render and hide the modal
     // The auth context should handle updating the user data
   }, []);
+
+  // Helper functions for review status
+  const getCurrentWeekStart = (): Date => {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+    const daysSinceSaturday = dayOfWeek === 6 ? 0 : dayOfWeek + 1;
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - daysSinceSaturday);
+    weekStart.setHours(0, 0, 0, 0);
+    return weekStart;
+  };
+
+  const getReviewStatus = (latestReview: MenteeReview | null, currentWeekStart: Date): 'completed' | 'pending' | 'overdue' => {
+    if (!latestReview) {
+      return 'pending';
+    }
+
+    const reviewWeekStart = new Date(latestReview.week_start);
+    const isCurrentWeek = reviewWeekStart.getTime() === currentWeekStart.getTime();
+
+    if (isCurrentWeek) {
+      return 'completed';
+    }
+
+    // If review is from a previous week, it's overdue
+    return 'overdue';
+  };
 
   const loadDashboardData = useCallback(async () => {
     try {
@@ -185,6 +216,11 @@ const MentorDashboard: React.FC = () => {
               )
             : 0;
 
+          // Get latest review for current week
+          const latestReview = await MenteeReviewService.getLatestReview(student.id);
+          const currentWeekStart = getCurrentWeekStart();
+          const reviewStatus = getReviewStatus(latestReview, currentWeekStart);
+
           return {
             student,
             pending_goals: goals.filter(g => g.status === 'pending').length,
@@ -193,12 +229,21 @@ const MentorDashboard: React.FC = () => {
             latest_reflection: latestReflection,
             average_achievement: avgAchievement,
             current_phase: latestGoal?.phase_id,
-            current_topic: latestGoal?.topic_id
+            current_topic: latestGoal?.topic_id,
+            weekly_review_status: reviewStatus,
+            latest_review: latestReview
           };
         })
       );
 
       setMenteeOverviews(overviews);
+
+      // Check for pending reviews and show reminder
+      const pendingReviews = overviews.filter(overview => overview.weekly_review_status === 'pending').length;
+      if (pendingReviews > 0) {
+        setPendingReviewCount(pendingReviews);
+        setShowReviewReminder(true);
+      }
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -488,19 +533,74 @@ const MentorDashboard: React.FC = () => {
           {menteeOverviews.length === 0 ? (
             <p className="text-gray-500">No mentees assigned yet</p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="flex flex-col lg:flex-row gap-4 overflow-x-auto">
               {menteeOverviews.map((overview) => (
-                <div key={overview.student.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div key={overview.student.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow min-w-0 flex-1 lg:flex-none lg:w-80">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-gray-900">{overview.student.name}</h3>
-                    {(overview.pending_goals + overview.pending_reflections) > 0 && (
-                      <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                        {overview.pending_goals + overview.pending_reflections}
+                    <h3 className="font-semibold text-gray-900 truncate">{overview.student.name}</h3>
+                    <div className="flex items-center space-x-2 mt-1">
+                      {(overview.pending_goals + overview.pending_reflections) > 0 && (
+                        <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                          {overview.pending_goals + overview.pending_reflections}
+                        </span>
+                      )}
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        overview.weekly_review_status === 'completed'
+                          ? 'bg-green-100 text-green-800'
+                          : overview.weekly_review_status === 'overdue'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {overview.weekly_review_status === 'completed' ? '✓ Reviewed' :
+                         overview.weekly_review_status === 'overdue' ? '⚠ Overdue' : '⏰ Pending'}
                       </span>
+                    </div>
+
+                    {/* Review Score Display */}
+                    {overview.weekly_review_status === 'completed' && overview.latest_review && (
+                      <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-green-800">Latest Score</span>
+                          <span className="text-sm font-bold text-green-900">
+                            {(() => {
+                              const scores = [
+                                overview.latest_review.morning_exercise,
+                                overview.latest_review.communication,
+                                overview.latest_review.academic_effort,
+                                overview.latest_review.campus_contribution,
+                                overview.latest_review.behavioural
+                              ];
+                              const avg = Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+                              return `${avg}/2`;
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex space-x-1 mt-1">
+                          {[
+                            overview.latest_review.morning_exercise,
+                            overview.latest_review.communication,
+                            overview.latest_review.academic_effort,
+                            overview.latest_review.campus_contribution,
+                            overview.latest_review.behavioural
+                          ].map((score, idx) => (
+                            <div key={idx} className="flex-1">
+                              <div className="w-full bg-green-200 rounded-full h-1">
+                                <div
+                                  className={`h-1 rounded-full ${
+                                    score >= 1 ? 'bg-green-500' :
+                                    score >= 0 ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${((score + 2) / 4) * 100}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
 
-                  <div className="space-y-2 text-sm">
+                  <div className="space-y-2 text-sm mb-3">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Goals:</span>
                       <span>{overview.pending_goals} pending</span>
@@ -519,13 +619,26 @@ const MentorDashboard: React.FC = () => {
                     )}
                   </div>
 
-                  <button
-                    onClick={() => navigate(`/mentor/mentee/${overview.student.id}`)}
-                    className="mt-3 w-full flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                  >
-                    View Details
-                    <ArrowRight className="h-4 w-4 ml-1" />
-                  </button>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => navigate(`/mentor/mentee/${overview.student.id}`)}
+                      className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                    >
+                      View Details
+                      <ArrowRight className="h-4 w-4 ml-1" />
+                    </button>
+                    <button
+                      onClick={() => navigate(`/mentor/mentee/${overview.student.id}?tab=review`)}
+                      className={`px-3 py-2 text-sm rounded transition-colors ${
+                        overview.weekly_review_status === 'completed'
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                          : 'bg-purple-600 text-white hover:bg-purple-700'
+                      }`}
+                      title={overview.weekly_review_status === 'completed' ? 'Update Review' : 'Add Review'}
+                    >
+                      <Star className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -586,6 +699,44 @@ const MentorDashboard: React.FC = () => {
         user={userData}
         onDateUpdated={handleJoiningDateUpdated}
       />
+    )}
+
+    {/* Review Reminder Modal */}
+    {showReviewReminder && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="flex items-center mb-4">
+            <div className="p-2 bg-yellow-100 rounded-lg">
+              <AlertCircle className="h-6 w-6 text-yellow-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 ml-3">Weekly Review Reminder</h3>
+          </div>
+          
+          <p className="text-gray-600 mb-6">
+            You have <span className="font-semibold text-yellow-600">{pendingReviewCount}</span> mentee{pendingReviewCount > 1 ? 's' : ''} 
+            who need{pendingReviewCount === 1 ? 's' : ''} their weekly performance review. 
+            Reviews are due every Saturday.
+          </p>
+          
+          <div className="flex space-x-3">
+            <button
+              onClick={() => setShowReviewReminder(false)}
+              className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Remind Me Later
+            </button>
+            <button
+              onClick={() => {
+                setShowReviewReminder(false);
+                setCurrentView(VIEW_TYPES.MY_MENTEES);
+              }}
+              className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              Review Now
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );

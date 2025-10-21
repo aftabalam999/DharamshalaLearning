@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserService } from '../../services/firestore';
-import { GoalService, ReflectionService, PairProgrammingService } from '../../services/dataServices';
-import { User, DailyGoal, DailyReflection, PairProgrammingRequest } from '../../types';
+import { GoalService, ReflectionService, EnhancedPairProgrammingService } from '../../services/dataServices';
+import { User, DailyGoal, DailyReflection, PairProgrammingSession } from '../../types';
 import { 
   Users, 
   Target, 
@@ -27,7 +27,7 @@ const MentorDashboard: React.FC = () => {
   const [menteeStats, setMenteeStats] = useState<MenteeStats[]>([]);
   const [pendingGoals, setPendingGoals] = useState<DailyGoal[]>([]);
   const [pendingReflections, setPendingReflections] = useState<DailyReflection[]>([]);
-  const [pairProgrammingRequests, setPairProgrammingRequests] = useState<PairProgrammingRequest[]>([]);
+  const [pairProgrammingRequests, setPairProgrammingRequests] = useState<PairProgrammingSession[]>([]); // TODO: Update type when needed
   const [loading, setLoading] = useState(true);
 
   const loadMentorData = useCallback(async () => {
@@ -39,15 +39,15 @@ const MentorDashboard: React.FC = () => {
       setMentees(menteesList);
 
       // Get pending items for review
-      const [goals, reflections, pairRequests] = await Promise.all([
+      const [goals, reflections] = await Promise.all([
         GoalService.getPendingGoalsForMentor(userData!.id),
-        ReflectionService.getPendingReflectionsForMentor(userData!.id),
-        PairProgrammingService.getRequestsByMentor(userData!.id)
+        ReflectionService.getPendingReflectionsForMentor(userData!.id)
+        // PairProgrammingService.getRequestsByMentor(userData!.id) // TODO: Update when needed
       ]);
 
       setPendingGoals(goals);
       setPendingReflections(reflections);
-      setPairProgrammingRequests(pairRequests);
+      // setPairProgrammingRequests(pairRequests); // TODO: Update when needed
 
       // Calculate stats for each mentee
       const stats = await Promise.all(

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import PhaseTimelineAdminPanel from './PhaseTimelineAdminPanel';
 // import removed: useNavigate
 import { DataSeedingService } from '../../services/dataSeedingService';
@@ -12,10 +13,13 @@ import SuperMentorManagement from './SuperMentorManagement';
 import BugReportAdminPanel from './BugReportAdminPanel';
 import AdminJourneyTracking from './AdminJourneyTracking';
 import AttendanceDashboard from './AttendanceDashboard';
+import MenteeReviewCategoriesAdmin from './MenteeReviewCategoriesAdmin';
+import CampusScheduleAdmin from './CampusScheduleAdmin';
 
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { userData } = useAuth();
   const [loading] = useState(false); // Fixed: was stuck on true
   const [seeding, setSeeding] = useState(false);
 
@@ -23,13 +27,21 @@ const AdminDashboard: React.FC = () => {
 
   // handleSeedData removed
 
-  // Main and sub tab structure
-  const mainTabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'user-management', label: 'User Management' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'backend', label: 'Backend Management' },
-  ];
+  // Main and sub tab structure - conditionally exclude backend for Academic Associates
+  const mainTabs = React.useMemo(() => {
+    const baseTabs = [
+      { id: 'overview', label: 'Overview' },
+      { id: 'user-management', label: 'User Management' },
+      { id: 'reports', label: 'Reports' },
+    ];
+
+    // Only add backend tab if user is not an Academic Associate
+    if (userData?.role !== 'academic_associate') {
+      baseTabs.push({ id: 'backend', label: 'Backend Management' });
+    }
+
+    return baseTabs;
+  }, [userData?.role]);
   const subTabs: { [key: string]: { id: string; label: string }[] } = React.useMemo(() => ({
     overview: [],
     'user-management': [
@@ -42,11 +54,13 @@ const AdminDashboard: React.FC = () => {
       { id: 'journey-tracking', label: 'Journey Tracking' },
       { id: 'phase-timeline', label: 'Phase Timeline' },
       { id: 'attendance', label: 'Attendance Dashboard' },
+      { id: 'campus-schedules', label: 'Campus Schedules' },
     ],
     backend: [
       { id: 'curriculum', label: 'Curriculum' },
       { id: 'database', label: 'Database Operations' },
       { id: 'bug-reports', label: 'Bug Reports' },
+      { id: 'mentee-reviews', label: 'Mentee Review Categories' },
     ],
   }), []);
 
@@ -60,10 +74,18 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     // When main tab changes, set subTab to first in group or overview
-    const newSubTab = subTabs[mainTab][0]?.id || 'overview';
+    const newSubTab = subTabs[mainTab]?.[0]?.id || 'overview';
     setSubTab(newSubTab);
     localStorage.setItem('admin-sub-tab', newSubTab);
   }, [mainTab, subTabs]);
+
+  // Redirect Academic Associates away from backend tabs
+  useEffect(() => {
+    if (userData?.role === 'academic_associate' && mainTab === 'backend') {
+      setMainTab('overview');
+      localStorage.setItem('admin-main-tab', 'overview');
+    }
+  }, [userData?.role, mainTab]);
 
   // Persist tab state to localStorage
   const handleMainTabChange = (tabId: string) => {
@@ -108,6 +130,7 @@ const AdminDashboard: React.FC = () => {
             key={tab.id}
             onClick={() => handleMainTabChange(tab.id)}
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${mainTab === tab.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-primary-50'}`}
+            title={`${tab.label} - ${tab.id === 'user_management' ? 'Manage users, roles, and permissions' : tab.id === 'backend_management' ? 'System configuration and data management' : 'View and analyze system data'}`}
           >
             {tab.label}
           </button>
@@ -172,12 +195,12 @@ const AdminDashboard: React.FC = () => {
             <PhaseTimelineAdminPanel />
           </div>
         )}
-        {mainTab === 'backend' && subTab === 'curriculum' && (
+        {mainTab === 'backend' && subTab === 'curriculum' && userData?.role !== 'academic_associate' && (
           <div className="p-6">
             <CurriculumAdminPanel />
           </div>
         )}
-        {mainTab === 'backend' && subTab === 'database' && (
+        {mainTab === 'backend' && subTab === 'database' && userData?.role !== 'academic_associate' && (
           <div className="p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Database Operations</h2>
             <div className="bg-gray-50 rounded-lg p-6">
@@ -299,9 +322,19 @@ const AdminDashboard: React.FC = () => {
             <AttendanceDashboard />
           </div>
         )}
-        {mainTab === 'backend' && subTab === 'bug-reports' && (
+        {mainTab === 'reports' && subTab === 'campus-schedules' && (
+          <div className="p-6">
+            <CampusScheduleAdmin />
+          </div>
+        )}
+        {mainTab === 'backend' && subTab === 'bug-reports' && userData?.role !== 'academic_associate' && (
           <div className="p-6">
             <BugReportAdminPanel />
+          </div>
+        )}
+        {mainTab === 'backend' && subTab === 'mentee-reviews' && userData?.role !== 'academic_associate' && (
+          <div className="p-6">
+            <MenteeReviewCategoriesAdmin />
           </div>
         )}
       </div>

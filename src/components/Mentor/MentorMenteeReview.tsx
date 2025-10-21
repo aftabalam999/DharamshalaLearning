@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { GoalService, ReflectionService, PhaseService, TopicService } from '../../services/dataServices';
-import { UserService } from '../../services/firestore';
-import { User, DailyGoal, DailyReflection, Phase, Topic } from '../../types';
+import { useModal } from '../../hooks/useModal';
+import { GoalService, ReflectionService, PhaseService, TopicService, MenteeReviewService } from '../../services/dataServices';
+import { UserService, FirestoreService, COLLECTIONS } from '../../services/firestore';
+import { User, DailyGoal, DailyReflection, Phase, Topic, MenteeReviewForm } from '../../types';
+import Toast from '../Common/Toast';
 import { 
   ArrowLeft, 
   Target, 
@@ -30,6 +32,7 @@ interface ReviewItem {
 const MentorMenteeReview: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { userData } = useAuth();
   
   const [student, setStudent] = useState<User | null>(null);
@@ -48,7 +51,26 @@ const MentorMenteeReview: React.FC = () => {
   });
   
   const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+
+  // Modal functionality
+  const { modalRef, contentRef, handleOutsideClick, handleContentClick } = useModal(
+    showReviewModal,
+    () => setShowReviewModal(false)
+  );
+  
+  // Mentee review state
+  const [menteeReview, setMenteeReview] = useState<MenteeReviewForm>({
+    morningExercise: 0,
+    communication: 0,
+    academicEffort: 0,
+    campusContribution: 0,
+    behavioural: 0,
+    notes: ''
+  });
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'reviewed' | 'approved'>('all');
+  const [latestReview, setLatestReview] = useState<any>(null);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'info' as 'success' | 'error' | 'info' });
 
   const loadStudentData = useCallback(async () => {
     try {
@@ -87,6 +109,15 @@ const MentorMenteeReview: React.FC = () => {
       });
 
       setReviewItems(items);
+
+      // Load latest review
+      try {
+        const review = await MenteeReviewService.getLatestReview(studentId);
+        setLatestReview(review);
+      } catch (error) {
+        console.error('Error loading latest review:', error);
+        setLatestReview(null);
+      }
     } catch (error) {
       console.error('Error loading student data:', error);
     } finally {
@@ -99,6 +130,14 @@ const MentorMenteeReview: React.FC = () => {
       loadStudentData();
     }
   }, [studentId, loadStudentData]);
+
+  // Check for tab parameter to auto-open review modal
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'review' && student) {
+      setShowReviewModal(true);
+    }
+  }, [searchParams, student]);
 
   const openFeedbackPanel = (item: ReviewItem) => {
     setSelectedItem(item);
@@ -158,6 +197,66 @@ const MentorMenteeReview: React.FC = () => {
     } catch (error) {
       console.error('Error submitting feedback:', error);
       alert('Failed to submit feedback. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitMenteeReview = async () => {
+    if (!student || !userData) return;
+
+    try {
+      setSubmitting(true);
+
+      // Create review data with proper field mapping (camelCase to snake_case)
+      const reviewData = {
+        student_id: student.id,
+        mentor_id: userData.id,
+        morning_exercise: menteeReview.morningExercise,
+        communication: menteeReview.communication,
+        academic_effort: menteeReview.academicEffort,
+        campus_contribution: menteeReview.campusContribution,
+        behavioural: menteeReview.behavioural,
+        notes: menteeReview.notes,
+        week_start: new Date()
+      };
+
+      console.log('📝 [MentorMenteeReview] Submitting review data:', reviewData);
+
+      // Close modal immediately before async operation
+      setShowReviewModal(false);
+
+      // Save to Firebase using MenteeReviewService
+      const savedReview = await MenteeReviewService.createReview(reviewData);
+      console.log('📝 [MentorMenteeReview] Review saved:', savedReview);
+      
+      // Reset form
+      setMenteeReview({
+        morningExercise: 0,
+        communication: 0,
+        academicEffort: 0,
+        campusContribution: 0,
+        behavioural: 0,
+        notes: ''
+      });
+      
+      // Show success toast
+      setToast({ visible: true, message: '✅ Mentee review submitted successfully!', type: 'success' });
+      
+      // Reload latest review data with a small delay to ensure Firestore consistency
+      setTimeout(async () => {
+        try {
+          if (studentId) {
+            const review = await MenteeReviewService.getLatestReview(studentId);
+            setLatestReview(review);
+          }
+        } catch (error) {
+          console.error('Error reloading latest review:', error);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error('Error submitting mentee review:', error);
+      setToast({ visible: true, message: '❌ Failed to submit review. Please try again.', type: 'error' });
     } finally {
       setSubmitting(false);
     }
@@ -322,6 +421,43 @@ const MentorMenteeReview: React.FC = () => {
                     : 0}%
                 </p>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Star className="h-6 w-6 text-purple-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Mentee Review</p>
+                  {latestReview ? (
+                    <div className="space-y-1">
+                      <p className="text-lg font-semibold text-gray-900">Latest Review Scores</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>Morning Exercise: <span className={`font-medium ${latestReview.morning_exercise >= 0 ? 'text-green-600' : 'text-red-600'}`}>{latestReview.morning_exercise}</span></div>
+                        <div>Communication: <span className={`font-medium ${latestReview.communication >= 0 ? 'text-green-600' : 'text-red-600'}`}>{latestReview.communication}</span></div>
+                        <div>Academic Effort: <span className={`font-medium ${latestReview.academic_effort >= 0 ? 'text-green-600' : 'text-red-600'}`}>{latestReview.academic_effort}</span></div>
+                        <div>Campus Contribution: <span className={`font-medium ${latestReview.campus_contribution >= 0 ? 'text-green-600' : 'text-red-600'}`}>{latestReview.campus_contribution}</span></div>
+                        <div className="col-span-2">Behavioural: <span className={`font-medium ${latestReview.behavioural >= 0 ? 'text-green-600' : 'text-red-600'}`}>{latestReview.behavioural}</span></div>
+                      </div>
+                      {latestReview.notes && (
+                        <p className="text-xs text-gray-500 mt-1 italic">"{latestReview.notes}"</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-lg font-semibold text-gray-900">Weekly Assessment</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowReviewModal(true)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                title="Review mentee performance"
+              >
+                {latestReview ? 'Update Review' : 'Review Mentee'}
+              </button>
             </div>
           </div>
         </div>
@@ -792,6 +928,229 @@ const MentorMenteeReview: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Mentee Review Modal */}
+      {showReviewModal && (
+        <div
+          ref={modalRef}
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={handleOutsideClick}
+        >
+          <div
+            ref={contentRef}
+            className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            onClick={handleContentClick}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center">
+                <Star className="h-6 w-6 text-purple-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-900">Mentee Performance Review</h3>
+              </div>
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Close review modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Morning Exercise */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Morning Exercise
+                </label>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  value={menteeReview.morningExercise}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, morningExercise: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span className={menteeReview.morningExercise <= -1 ? 'font-semibold text-red-600' : ''}>-2: Needs improvement</span>
+                  <span className={menteeReview.morningExercise === 0 ? 'font-semibold text-yellow-600' : ''}>0: Average</span>
+                  <span className={menteeReview.morningExercise >= 1 ? 'font-semibold text-green-600' : ''}>2: Excellent</span>
+                </div>
+                <div className={`text-center text-sm font-medium mt-2 px-3 py-1 rounded-full inline-block ${
+                  menteeReview.morningExercise >= 1 ? 'bg-green-100 text-green-800' :
+                  menteeReview.morningExercise <= -1 ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {menteeReview.morningExercise === -2 ? 'Needs to come regularly' :
+                   menteeReview.morningExercise === -1 ? 'Rarely participates' :
+                   menteeReview.morningExercise === 0 ? 'Sometimes present' :
+                   menteeReview.morningExercise === 1 ? 'Often participates' :
+                   'Actively participates'}
+                </div>
+              </div>
+
+              {/* Communication */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Communication
+                </label>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  value={menteeReview.communication}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, communication: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span className={menteeReview.communication <= -1 ? 'font-semibold text-red-600' : ''}>-2: Poor skills</span>
+                  <span className={menteeReview.communication === 0 ? 'font-semibold text-yellow-600' : ''}>0: Basic</span>
+                  <span className={menteeReview.communication >= 1 ? 'font-semibold text-green-600' : ''}>2: Excellent</span>
+                </div>
+                <div className={`text-center text-sm font-medium mt-2 px-3 py-1 rounded-full inline-block ${
+                  menteeReview.communication >= 1 ? 'bg-green-100 text-green-800' :
+                  menteeReview.communication <= -1 ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {menteeReview.communication === -2 ? 'Poor communication skills' :
+                   menteeReview.communication === -1 ? 'Below average' :
+                   menteeReview.communication === 0 ? 'Basic communication' :
+                   menteeReview.communication === 1 ? 'Good communicator' :
+                   'Excellent communicator'}
+                </div>
+              </div>
+
+              {/* Academic Effort */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Academic Effort
+                </label>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  value={menteeReview.academicEffort}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, academicEffort: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span className={menteeReview.academicEffort <= -1 ? 'font-semibold text-red-600' : ''}>-2: Minimal effort</span>
+                  <span className={menteeReview.academicEffort === 0 ? 'font-semibold text-yellow-600' : ''}>0: Moderate</span>
+                  <span className={menteeReview.academicEffort >= 1 ? 'font-semibold text-green-600' : ''}>2: Exceptional</span>
+                </div>
+                <div className={`text-center text-sm font-medium mt-2 px-3 py-1 rounded-full inline-block ${
+                  menteeReview.academicEffort >= 1 ? 'bg-green-100 text-green-800' :
+                  menteeReview.academicEffort <= -1 ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {menteeReview.academicEffort === -2 ? 'Minimal academic effort' :
+                   menteeReview.academicEffort === -1 ? 'Below average effort' :
+                   menteeReview.academicEffort === 0 ? 'Moderate effort' :
+                   menteeReview.academicEffort === 1 ? 'Good dedication' :
+                   'Exceptional dedication'}
+                </div>
+              </div>
+
+              {/* Campus Contribution */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Campus Contribution
+                </label>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  value={menteeReview.campusContribution}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, campusContribution: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span className={menteeReview.campusContribution <= -1 ? 'font-semibold text-red-600' : ''}>-2: No involvement</span>
+                  <span className={menteeReview.campusContribution === 0 ? 'font-semibold text-yellow-600' : ''}>0: Occasional</span>
+                  <span className={menteeReview.campusContribution >= 1 ? 'font-semibold text-green-600' : ''}>2: Active leader</span>
+                </div>
+                <div className={`text-center text-sm font-medium mt-2 px-3 py-1 rounded-full inline-block ${
+                  menteeReview.campusContribution >= 1 ? 'bg-green-100 text-green-800' :
+                  menteeReview.campusContribution <= -1 ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {menteeReview.campusContribution === -2 ? 'No campus involvement' :
+                   menteeReview.campusContribution === -1 ? 'Minimal participation' :
+                   menteeReview.campusContribution === 0 ? 'Occasional participation' :
+                   menteeReview.campusContribution === 1 ? 'Regular contributor' :
+                   'Active campus leader'}
+                </div>
+              </div>
+
+              {/* Behavioural */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Behavioural
+                </label>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  value={menteeReview.behavioural}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, behavioural: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span className={menteeReview.behavioural <= -1 ? 'font-semibold text-red-600' : ''}>-2: Disruptive</span>
+                  <span className={menteeReview.behavioural === 0 ? 'font-semibold text-yellow-600' : ''}>0: Neutral</span>
+                  <span className={menteeReview.behavioural >= 1 ? 'font-semibold text-green-600' : ''}>2: Exemplary</span>
+                </div>
+                <div className={`text-center text-sm font-medium mt-2 px-3 py-1 rounded-full inline-block ${
+                  menteeReview.behavioural >= 1 ? 'bg-green-100 text-green-800' :
+                  menteeReview.behavioural <= -1 ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {menteeReview.behavioural === -2 ? 'Disruptive behavior' :
+                   menteeReview.behavioural === -1 ? 'Needs improvement' :
+                   menteeReview.behavioural === 0 ? 'Neutral behavior' :
+                   menteeReview.behavioural === 1 ? 'Good conduct' :
+                   'Exemplary conduct'}
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Additional Notes
+                </label>
+                <textarea
+                  value={menteeReview.notes}
+                  onChange={(e) => setMenteeReview(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Add any additional comments or observations..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitMenteeReview}
+                disabled={submitting}
+                className="px-4 py-2 text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+              >
+                {submitting ? 'Submitting...' : 'Submit Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast({ visible: false, message: '', type: 'info' })}
+      />
     </div>
   );
 };

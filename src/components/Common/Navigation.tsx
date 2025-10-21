@@ -19,7 +19,8 @@ import {
   UserCircle,
   Building,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Code
 } from 'lucide-react';
 
 import BugFeatureModal from './BugFeatureModal';
@@ -92,6 +93,12 @@ export default function Navigation() {
       mobileLabel: 'Journey',
       path: '/journey',
       icon: TrendingUp
+    },
+    {
+      label: 'Pair Programming',
+      mobileLabel: 'Pair Prog',
+      path: '/pair-programming/dashboard',
+      icon: Code
     },
     {
       label: 'Mentor',

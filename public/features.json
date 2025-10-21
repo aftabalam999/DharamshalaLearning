@@ -1,8 +1,17 @@
 {
-  "generatedAt": "2025-10-15T03:27:20.261Z",
+  "generatedAt": "2025-10-21T03:51:49.440Z",
   "version": "0.1.0",
   "features": {
     "all": [
+      {
+        "id": "feature-19f69f05",
+        "title": "Add admin journey viewer with campus filtering and learner dashboard button",
+        "description": "Add admin journey viewer with campus filtering and learner dashboard button",
+        "status": "released",
+        "dateAdded": "2025-10-15",
+        "commitHash": "19f69f05dc1146dd492bc6986927270ce871d0b7",
+        "author": "Mubin"
+      },
       {
         "id": "feature-b2977702",
         "title": "Add profile completion modal for incomplete user profiles",
@@ -69,6 +78,15 @@
       }
     ],
     "released": [
+      {
+        "id": "feature-19f69f05",
+        "title": "Add admin journey viewer with campus filtering and learner dashboard button",
+        "description": "Add admin journey viewer with campus filtering and learner dashboard button",
+        "status": "released",
+        "dateAdded": "2025-10-15",
+        "commitHash": "19f69f05dc1146dd492bc6986927270ce871d0b7",
+        "author": "Mubin"
+      },
       {
         "id": "feature-b2977702",
         "title": "Add profile completion modal for incomplete user profiles",
@@ -141,6 +159,6 @@
   },
   "pathMappings": {
     "/goals": "available",
-    "/journey": "available"
+    "/journey": "coming-soon"
   }
 }

@@ -16,7 +16,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { User } from '../types';
+import { User, MentorAvailability } from '../types';
 
 // Utility function to convert Firestore Timestamps to JavaScript Dates
 function convertTimestampsToDates(obj: any): any {
@@ -47,10 +47,22 @@ export const COLLECTIONS = {
   DAILY_GOALS: 'daily_goals',
   DAILY_REFLECTIONS: 'daily_reflections',
   PAIR_PROGRAMMING_REQUESTS: 'pair_programming_requests',
+  PAIR_PROGRAMMING_SESSIONS: 'pair_programming_sessions',
+  PAIR_PROGRAMMING_GOALS: 'pair_programming_goals',
+  MENTOR_FEEDBACK: 'mentor_feedback',
+  MENTEE_FEEDBACK: 'mentee_feedback',
+  SESSION_COMPLETIONS: 'session_completions',
+  LEAVE_REQUESTS: 'leave_requests',
+  LEAVE_IMPACTS: 'leave_impacts',
+  NOTIFICATIONS: 'notifications',
+  REMINDER_SETTINGS: 'reminder_settings',
   ATTENDANCE: 'attendance',
   MENTOR_NOTES: 'mentor_notes',
-  LEAVE_REQUESTS: 'leave_requests',
-  STUDENT_PROGRESS: 'student_progress'
+  STUDENT_PROGRESS: 'student_progress',
+  MENTEE_REVIEWS: 'mentee_reviews',
+  MENTEE_REVIEW_CATEGORIES: 'mentee_review_categories',
+  MENTOR_AVAILABILITY: 'mentor_availability',
+  CAMPUS_SCHEDULES: 'campus_schedules'
 };
 
 // Generic CRUD operations
@@ -79,7 +91,7 @@ export class FirestoreService {
     }
   }
   // Create document
-  static async create<T>(collectionName: string, data: Omit<T, 'id'>): Promise<string> {
+  static async create<T>(collectionName: string, data: Omit<T, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     try {
       const docRef = await addDoc(collection(db, collectionName), {
         ...data,
@@ -252,9 +264,46 @@ export class FirestoreService {
       callback(data);
     });
   }
-}
 
-// User-specific operations
+  // Update multiple documents matching conditions
+  static async updateWhere<T extends { id: string }>(
+    collectionName: string,
+    conditions: Array<{ field: string; operator: any; value: any }>,
+    updates: Partial<T>
+  ): Promise<void> {
+    try {
+      const documents = await this.getWhereCompound<T>(collectionName, conditions);
+      
+      const updatePromises = documents.map(doc => 
+        this.update<T>(collectionName, doc.id, updates)
+      );
+      
+      await Promise.all(updatePromises);
+    } catch (error) {
+      console.error(`Error updating documents in ${collectionName}:`, error);
+      throw error;
+    }
+  }
+
+  // Delete multiple documents matching conditions
+  static async deleteWhere(
+    collectionName: string,
+    conditions: Array<{ field: string; operator: any; value: any }>
+  ): Promise<void> {
+    try {
+      const documents = await this.getWhereCompound<any>(collectionName, conditions);
+      
+      const deletePromises = documents.map(doc => 
+        deleteDoc(doc(db, collectionName, doc.id))
+      );
+      
+      await Promise.all(deletePromises);
+    } catch (error) {
+      console.error(`Error deleting documents from ${collectionName}:`, error);
+      throw error;
+    }
+  }
+}
 export class UserService extends FirestoreService {
   static async createUser(userData: Omit<User, 'id'>): Promise<string> {
     return this.create<User>(COLLECTIONS.USERS, userData);
@@ -336,6 +385,84 @@ export class UserService extends FirestoreService {
       return await this.getWhere<User>(COLLECTIONS.USERS, 'house', '==', house);
     } catch (error) {
       console.error('Error fetching users by house:', error);
+      throw error;
+    }
+  }
+
+  static async getUsersByCampus(campus: string): Promise<User[]> {
+    try {
+      return await this.getWhere<User>(COLLECTIONS.USERS, 'campus', '==', campus);
+    } catch (error) {
+      console.error('Error fetching users by campus:', error);
+      throw error;
+    }
+  }
+
+  // Mentor Availability Methods
+  static async getMentorAvailability(mentorId: string): Promise<MentorAvailability[]> {
+    try {
+      return await this.getWhere<MentorAvailability>(COLLECTIONS.MENTOR_AVAILABILITY, 'mentor_id', '==', mentorId);
+    } catch (error) {
+      console.error('Error fetching mentor availability:', error);
+      throw error;
+    }
+  }
+
+  static async saveMentorAvailability(availability: Omit<MentorAvailability, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      // Check if availability slot already exists
+      const existing = await this.getWhereCompound<MentorAvailability>(
+        COLLECTIONS.MENTOR_AVAILABILITY,
+        [
+          { field: 'mentor_id', operator: '==', value: availability.mentor_id },
+          { field: 'day_of_week', operator: '==', value: availability.day_of_week },
+          { field: 'start_time', operator: '==', value: availability.start_time }
+        ]
+      );
+
+      if (existing.length > 0) {
+        // Update existing
+        await this.update<MentorAvailability>(COLLECTIONS.MENTOR_AVAILABILITY, existing[0].id, {
+          ...availability,
+          updated_at: new Date()
+        });
+        return existing[0].id;
+      } else {
+        // Create new
+        return await this.create<MentorAvailability>(COLLECTIONS.MENTOR_AVAILABILITY, availability);
+      }
+    } catch (error) {
+      console.error('Error saving mentor availability:', error);
+      throw error;
+    }
+  }
+
+  static async saveBulkMentorAvailability(availabilitySlots: Omit<MentorAvailability, 'id' | 'created_at' | 'updated_at'>[]): Promise<void> {
+    try {
+      const promises = availabilitySlots.map(slot => this.saveMentorAvailability(slot));
+      await Promise.all(promises);
+    } catch (error) {
+      console.error('Error saving bulk mentor availability:', error);
+      throw error;
+    }
+  }
+
+  static async deleteMentorAvailability(mentorId: string, dayOfWeek: string, startTime: string): Promise<void> {
+    try {
+      const existing = await this.getWhereCompound<MentorAvailability>(
+        COLLECTIONS.MENTOR_AVAILABILITY,
+        [
+          { field: 'mentor_id', operator: '==', value: mentorId },
+          { field: 'day_of_week', operator: '==', value: dayOfWeek },
+          { field: 'start_time', operator: '==', value: startTime }
+        ]
+      );
+
+      if (existing.length > 0) {
+        await this.delete(COLLECTIONS.MENTOR_AVAILABILITY, existing[0].id);
+      }
+    } catch (error) {
+      console.error('Error deleting mentor availability:', error);
       throw error;
     }
   }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { initialPhases } from '../../data/initialData';
+import { PhaseTimelineService, PhaseService } from '../../services/dataServices';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface PhaseTimelineRow {
   name: string;
@@ -8,25 +9,24 @@ interface PhaseTimelineRow {
 }
 
 const PhaseTimelineAdminPanel: React.FC = () => {
+  const { userData } = useAuth();
   const [rows, setRows] = useState<PhaseTimelineRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     const loadAllPhases = async () => {
       try {
         setLoading(true);
         
-        // Combine all phases from different sources
-        const allPhases = [
-          ...initialPhases,
-          // Add phases 3-7 that were defined in separate files
-          { name: 'Phase 3: Interactive Quiz Master', order: 4 },
-          { name: 'Phase 4: AI-Powered Content Generator', order: 5 },
-          { name: 'Phase 5: Ask Gemini Web App', order: 6 },
-          { name: 'Phase 6: Student Feedback Manager', order: 7 },
-          { name: 'Phase 7: CollabSphere', order: 8 },
-        ];
-
+        // Get all phases from database
+        const allPhases = await PhaseService.getAllPhases();
+        
+        // Get existing timeline data
+        const existingTimelines = await PhaseTimelineService.getAllPhaseTimelines();
+        const timelineMap = new Map(existingTimelines.map(t => [t.phaseId, t]));
+        
         // Sort by order and create editable rows
         const sortedPhases = allPhases.sort((a, b) => {
           // Handle special order values
@@ -36,11 +36,14 @@ const PhaseTimelineAdminPanel: React.FC = () => {
           return a.order - b.order;
         });
 
-        const phaseRows = sortedPhases.map(phase => ({
-          name: phase.name,
-          expectedDays: null, // default value, admin sets this
-          isStandalone: false // default value, admin sets this
-        }));
+        const phaseRows = sortedPhases.map(phase => {
+          const existingTimeline = timelineMap.get(phase.id);
+          return {
+            name: phase.name,
+            expectedDays: existingTimeline?.expectedDays || null,
+            isStandalone: existingTimeline?.isStandalone || false
+          };
+        });
 
         setRows(phaseRows);
       } catch (error) {
@@ -62,10 +65,43 @@ const PhaseTimelineAdminPanel: React.FC = () => {
     setRows(rows => rows.map((row, i) => i === idx ? { ...row, isStandalone: checked, expectedDays: checked ? null : row.expectedDays } : row));
   };
 
-  // Placeholder for save logic
-  const handleSave = () => {
-    // TODO: Save to Firestore or backend
-    alert('Phase timeline saved!');
+  // Save logic
+  const handleSave = async () => {
+    if (!userData) {
+      alert('User not authenticated');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Get all phases to map names to IDs
+      const allPhases = await PhaseService.getAllPhases();
+      const phaseMap = new Map(allPhases.map(p => [p.name, p.id]));
+      
+      // Prepare timeline data
+      const timelineData = rows.map(row => {
+        const phaseId = phaseMap.get(row.name);
+        if (!phaseId) {
+          throw new Error(`Phase not found: ${row.name}`);
+        }
+        return {
+          phaseId,
+          phaseName: row.name,
+          expectedDays: row.expectedDays,
+          isStandalone: row.isStandalone,
+          updatedBy: userData.id
+        };
+      });
+      
+      await PhaseTimelineService.savePhaseTimelines(timelineData, userData.id);
+      alert('Phase timeline saved successfully!');
+    } catch (error) {
+      console.error('Error saving phase timeline:', error);
+      alert('Error saving phase timeline. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -79,8 +115,37 @@ const PhaseTimelineAdminPanel: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Phase Timeline Management</h2>
-      <p className="text-gray-600 mb-4">Set expected completion days for each learning phase.</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Phase Timeline Management</h2>
+          <p className="text-gray-600 mt-1">Set expected completion days for each learning phase.</p>
+        </div>
+        {!isEditing ? (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700"
+          >
+            Edit Timeline
+          </button>
+        ) : (
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setIsEditing(false)}
+              disabled={saving}
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        )}
+      </div>
       <table className="w-full border rounded-lg mb-6">
         <thead>
           <tr className="bg-gray-100">
@@ -94,32 +159,38 @@ const PhaseTimelineAdminPanel: React.FC = () => {
             <tr key={row.name} className="border-t">
               <td className="py-2 px-4">{row.name}</td>
               <td className="py-2 px-4">
-                <input
-                  type="number"
-                  min="0"
-                  value={row.expectedDays ?? ''}
-                  disabled={row.isStandalone}
-                  onChange={e => handleDaysChange(idx, e.target.value)}
-                  className="border rounded px-2 py-1 w-24"
-                />
+                {isEditing ? (
+                  <input
+                    type="number"
+                    min="0"
+                    value={row.expectedDays ?? ''}
+                    disabled={row.isStandalone}
+                    onChange={e => handleDaysChange(idx, e.target.value)}
+                    className="border rounded px-2 py-1 w-24"
+                  />
+                ) : (
+                  <span className={row.expectedDays ? 'text-gray-900' : 'text-gray-400'}>
+                    {row.expectedDays ? `${row.expectedDays} days` : 'Not set'}
+                  </span>
+                )}
               </td>
               <td className="py-2 px-4">
-                <input
-                  type="checkbox"
-                  checked={row.isStandalone}
-                  onChange={e => handleStandaloneChange(idx, e.target.checked)}
-                />
+                {isEditing ? (
+                  <input
+                    type="checkbox"
+                    checked={row.isStandalone}
+                    onChange={e => handleStandaloneChange(idx, e.target.checked)}
+                  />
+                ) : (
+                  <span className={row.isStandalone ? 'text-green-600' : 'text-gray-400'}>
+                    {row.isStandalone ? 'Yes' : 'No'}
+                  </span>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <button
-        onClick={handleSave}
-        className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700"
-      >
-        Save
-      </button>
     </div>
   );
 };

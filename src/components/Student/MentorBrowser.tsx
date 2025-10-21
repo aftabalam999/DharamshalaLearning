@@ -3,6 +3,7 @@ import { X, Search, Filter, UserCheck, Star, AlertCircle, Users, Loader } from '
 import MentorListSkeleton from './MentorListSkeleton';
 import { MentorshipService } from '../../services/dataServices';
 import { useAuth } from '../../contexts/AuthContext';
+import { useModal } from '../../hooks/useModal';
 import { MentorWithCapacity } from '../../types';
 
 interface MentorBrowserProps {
@@ -37,6 +38,9 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
   const [houseFilter, setHouseFilter] = useState<string>(userData?.house || 'all');
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Modal functionality - always open when component is rendered
+  const { modalRef, contentRef, handleOutsideClick, handleContentClick } = useModal(true, onClose);
 
   // Check for pending mentor requests
   useEffect(() => {
@@ -168,8 +172,16 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div
+      ref={modalRef}
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      onClick={handleOutsideClick}
+    >
+      <div
+        ref={contentRef}
+        className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={handleContentClick}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-bold text-gray-900">Browse Mentors</h2>
@@ -213,6 +225,7 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Toggle filter options"
           >
             <Filter className="h-4 w-4" />
             <span>Filters</span>
@@ -282,9 +295,9 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
                       key={mentorInfo.mentor.id}
                       className={`border rounded-lg p-4 transition-all ${
                         isSelected
-                          ? 'border-primary-500 bg-primary-50'
+                          ? 'border-primary-500 bg-primary-50 shadow-md'
                           : isCurrentMentor
-                          ? 'border-blue-300 bg-blue-50'
+                          ? 'border-blue-200 bg-blue-50'
                           : hasSlots && !isOnLeave
                           ? 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 cursor-pointer'
                           : 'border-gray-200 bg-gray-50 opacity-60'
@@ -294,6 +307,7 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
                           setSelectedMentor(mentorInfo.mentor.id);
                         }
                       }}
+                      title={hasSlots && !isCurrentMentor && !isOnLeave ? 'Click to select this mentor' : isCurrentMentor ? 'This is your current mentor' : !hasSlots ? 'No slots available' : 'Mentor is on leave'}
                     >
                       <div className="space-y-3">
                         <div className="flex items-start justify-between">
@@ -369,6 +383,7 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
               <button
                 onClick={onClose}
                 className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                title="Close mentor request dialog"
               >
                 Cancel
               </button>
@@ -376,6 +391,7 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
                 onClick={handleRequestMentor}
                 disabled={submitting || !reason.trim()}
                 className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Send mentor request to selected mentor"
               >
                 {submitting ? 'Submitting...' : 'Submit Request'}
               </button>

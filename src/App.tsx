@@ -13,11 +13,18 @@ import StudentDashboard from './components/Student/StudentDashboard';
 import GoalSetting from './components/Student/GoalSetting';
 import ReflectionSubmission from './components/Student/ReflectionSubmission';
 import StudentJourney from './components/Student/StudentJourney';
+import CalendarAuth from './components/Student/CalendarAuth';
+import MenteeSlotBooking from './components/Student/MenteeSlotBooking';
 
 // Mentor Components
 import MentorDashboard from './components/Mentor/MentorDashboard';
 import MentorMenteeReview from './components/Mentor/MentorMenteeReview';
 import PairProgrammingManagement from './components/Mentor/PairProgrammingManagement';
+
+// Pair Programming Components
+import PairProgrammingDashboard from './components/PairProgramming/PairProgrammingDashboard';
+import CalendarView from './components/PairProgramming/CalendarView';
+import Leaderboard from './components/PairProgramming/Leaderboard';
 
 // Admin Components
 import AdminDashboard from './components/Admin/AdminDashboard';
@@ -77,6 +84,12 @@ function App() {
               </ProtectedRoute>
             } />
 
+            <Route path="/calendar-auth" element={
+              <ProtectedRoute>
+                <CalendarAuth />
+              </ProtectedRoute>
+            } />
+
             <Route path="/goals" element={
               <ProtectedRoute>
                 <Layout>
@@ -97,6 +110,14 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <ReflectionSubmission />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/student/book-session" element={
+              <ProtectedRoute>
+                <Layout>
+                  <MenteeSlotBooking />
                 </Layout>
               </ProtectedRoute>
             } />
@@ -130,6 +151,31 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <PairProgrammingManagement />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Pair Programming Routes */}
+            <Route path="/pair-programming/dashboard" element={
+              <ProtectedRoute>
+                <Layout>
+                  <PairProgrammingDashboard />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/pair-programming/calendar" element={
+              <ProtectedRoute>
+                <Layout>
+                  <CalendarView />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/pair-programming/leaderboard" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Leaderboard />
                 </Layout>
               </ProtectedRoute>
             } />

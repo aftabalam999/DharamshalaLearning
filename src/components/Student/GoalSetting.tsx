@@ -229,11 +229,10 @@ const GoalSetting: React.FC = () => {
         await FirestoreService.update<DailyGoal>(COLLECTIONS.DAILY_GOALS, goalId, updateData);
       } else {
         // Create new goal - only include fields that are defined
-        const createData: Omit<DailyGoal, 'id'> = {
+        const createData: Omit<DailyGoal, 'id' | 'created_at' | 'updated_at'> = {
           ...formData,
           student_id: userData?.id || '',
-          status: 'pending',
-          created_at: formData.goal_date || new Date()
+          status: 'pending'
         };
         
         // Only include goal_rating if it's not null/undefined

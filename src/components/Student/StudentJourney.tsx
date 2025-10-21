@@ -1,15 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { FirestoreService, COLLECTIONS } from '../../services/firestore';
+import { PhaseService, TopicService, PhaseTimelineService } from '../../services/dataServices';
 import { Phase, Topic, DailyGoal, DailyReflection, User } from '../../types';
 import { UserSelector } from '../Common/UserSelector';
 import { CampusFilter } from '../Common/CampusFilter';
 import type { Campus } from '../Common/CampusFilter';
 import { TrendingUp, BookOpen, Target, Award, Calendar } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-// Utility for today
-const today = new Date();
 
 interface TopicProgress {
   topic: Topic;
@@ -24,6 +22,8 @@ interface PhaseProgress {
   completedTopics: number;
   totalTopics: number;
   progressPercentage: number;
+  expectedDays: number | null;
+  earliestGoalDate?: Date; // Date when student first created a goal for this phase
 }
 
 interface PhaseDurationData {
@@ -59,17 +59,19 @@ const calculatePhaseDurations = (phaseProgress: PhaseProgress[], campusJoiningDa
   let endDate: Date;
   let status: 'completed' | 'current' | 'not_started';
 
-    // For Phase 1, use campus joining date as start
-    if (index === 0) {
-  startDate = campusJoiningDate || today;
+    // Use the earliest goal creation date for this phase, fallback to campus joining date for Phase 1
+    if (phaseData.earliestGoalDate) {
+      startDate = phaseData.earliestGoalDate;
+    } else if (index === 0) {
+      startDate = campusJoiningDate || today;
     } else {
-      // For subsequent phases, use the completion date of the previous phase's last topic
+      // For subsequent phases without goals, use the completion date of the previous phase
       const prevPhase = filteredPhases[index - 1];
       const prevPhaseLastCompletion = prevPhase.topics
         .filter(t => t.completed && t.completionDate)
         .sort((a, b) => (b.completionDate?.getTime() || 0) - (a.completionDate?.getTime() || 0))[0];
 
-      startDate = prevPhaseLastCompletion?.completionDate || today;
+      startDate = prevPhaseLastCompletion?.completionDate || campusJoiningDate || today;
     }
 
     // Determine end date and status
@@ -118,6 +120,10 @@ const calculateHouseAverages = async (house: string, allPhases: Phase[]): Promis
     // Get all students in the house
     const houseStudents = await UserService.getUsersByHouse(house);
 
+    // Get phase timeline data for expected days
+    const phaseTimelines = await PhaseTimelineService.getAllPhaseTimelines();
+    const timelineMap = new Map(phaseTimelines.map(t => [t.phaseId, t]));
+
     // Filter out "Self Learning Space" and sort by phase order
     const filteredPhases = allPhases
       .filter(phase => phase.name !== 'Self Learning Space')
@@ -128,6 +134,7 @@ const calculateHouseAverages = async (house: string, allPhases: Phase[]): Promis
     for (let i = 0; i < filteredPhases.length; i++) {
       const phase = filteredPhases[i];
       const phaseDurations: number[] = [];
+      const expectedDays = timelineMap.get(phase.id)?.expectedDays;
 
       for (const student of houseStudents) {
         if (!student.campus_joining_date) continue;
@@ -139,48 +146,49 @@ const calculateHouseAverages = async (house: string, allPhases: Phase[]): Promis
           '==',
           student.id
         );
-        const phaseGoals = studentGoals.filter((goal: DailyGoal) => goal.phase_id === phase.id);
+        const phaseGoalsByPhaseId = studentGoals.filter((goal: DailyGoal) => goal.phase_id === phase.id);
 
-        if (phaseGoals.length === 0) continue;
+        // If student has no goals in this phase, check if they skipped it
+        if (phaseGoalsByPhaseId.length === 0) {
+          // Check if student has goals in any subsequent phases
+          const hasLaterPhases = filteredPhases.slice(i + 1).some(laterPhase => {
+            const laterGoals = studentGoals.filter((goal: DailyGoal) => goal.phase_id === laterPhase.id);
+            return laterGoals.length > 0;
+          });
 
-        // Calculate start date for this student in this phase
-        let startDate: Date;
-        if (i === 0) {
-          startDate = student.campus_joining_date;
-        } else {
-          // Find completion date of previous phase
-          const prevPhase = filteredPhases[i - 1];
-          const prevPhaseGoals = studentGoals.filter((goal: DailyGoal) => goal.phase_id === prevPhase.id);
-
-          let prevPhaseEndDate: Date | null = null;
-          for (const goal of prevPhaseGoals) {
-            try {
-              const reflections = await FirestoreService.getWhere<DailyReflection>(
-                COLLECTIONS.DAILY_REFLECTIONS,
-                'goal_id',
-                '==',
-                goal.id
-              );
-              const reflection = reflections[0];
-              if (reflection && reflection.achieved_percentage === 100) {
-                const completionDate = new Date(reflection.created_at);
-                if (!prevPhaseEndDate || completionDate > prevPhaseEndDate) {
-                  prevPhaseEndDate = completionDate;
-                }
-              }
-            } catch (error) {
-              // Continue checking other goals
-            }
+          // If student has goals in later phases but not this one, they skipped this phase
+          if (hasLaterPhases && expectedDays) {
+            phaseDurations.push(expectedDays);
           }
-
-          startDate = prevPhaseEndDate || today;
+          continue;
         }
+
+        // Find the earliest goal creation date for this phase
+        // Try phase_id matching first, fallback to topic-based matching
+        let phaseGoalsForDate = studentGoals.filter((goal: DailyGoal) => goal.phase_id === phase.id);
+        let earliestGoalDate: Date;
+
+        if (phaseGoalsForDate.length > 0) {
+          // Use phase_id matching
+          earliestGoalDate = new Date(Math.min(...phaseGoalsForDate.map(g => new Date(g.created_at).getTime())));
+        } else {
+          // Fallback to topic-based matching
+          const phaseTopics = await TopicService.getTopicsByPhase(phase.id);
+          const phaseTopicIds = phaseTopics.map(t => t.id);
+          const reliablePhaseGoals = studentGoals.filter(goal => phaseTopicIds.includes(goal.topic_id));
+          earliestGoalDate = reliablePhaseGoals.length > 0
+            ? new Date(Math.min(...reliablePhaseGoals.map(g => new Date(g.created_at).getTime())))
+            : new Date(Math.min(...phaseGoalsForDate.map(g => new Date(g.created_at).getTime())));
+        }
+
+        // Calculate start date - use earliest goal date for this phase
+        let startDate: Date = earliestGoalDate;
 
         // Calculate end date (last completion in this phase or current date)
         let endDate: Date = new Date();
         let hasCompletedTopics = false;
 
-        for (const goal of phaseGoals) {
+        for (const goal of phaseGoalsByPhaseId) {
           try {
             const reflections = await FirestoreService.getWhere<DailyReflection>(
               COLLECTIONS.DAILY_REFLECTIONS,
@@ -204,6 +212,9 @@ const calculateHouseAverages = async (house: string, allPhases: Phase[]): Promis
         if (hasCompletedTopics) {
           const daysSpent = Math.max(0, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
           phaseDurations.push(daysSpent);
+        } else if (expectedDays) {
+          // If student started the phase but hasn't completed it, use expected days
+          phaseDurations.push(expectedDays);
         }
       }
 
@@ -290,18 +301,27 @@ const StudentJourney: React.FC = () => {
       setLoadingStage('Gathering your learning journey data...');
       console.log('Starting to load real journey data...');
 
-      // Load foundation data (phases and topics structure)
-      const { initialPhases, detailedTopics } = await import('../../data/initialData');
-      console.log('Loaded initial data:', { initialPhases, detailedTopics });
+      // Load foundation data (phases and topics structure) from database
+      setLoadingStage('Loading curriculum structure...');
+      console.log('Loading phases and topics from database...');
       
-      const phases: Phase[] = initialPhases.map((phase, index) => ({
-        id: `phase-${phase.order}`,
-        name: phase.name,
-        order: phase.order,
-        isSenior: phase.isSenior,
-        created_at: new Date()
-      }));
-      console.log('Processed phases:', phases);
+      const [phases, allTopics] = await Promise.all([
+        PhaseService.getAllPhases(),
+        TopicService.getAll(COLLECTIONS.TOPICS)
+      ]);
+      
+      console.log('Loaded phases from database:', phases.length);
+      console.log('Loaded topics from database:', allTopics.length);
+      
+      // Group topics by phase_id for easier access
+      const topicsByPhase = new Map<string, Topic[]>();
+      allTopics.forEach((topic: any) => {
+        if (!topicsByPhase.has(topic.phase_id)) {
+          topicsByPhase.set(topic.phase_id, []);
+        }
+        topicsByPhase.get(topic.phase_id)!.push(topic);
+      });
+      
       setAllPhases(phases);
 
       // Load real user data from Firestore
@@ -321,20 +341,16 @@ const StudentJourney: React.FC = () => {
       );
       console.log('Loaded user goals:', userGoals);
 
+      // Get phase timeline data for expected days
+      const phaseTimelines = await PhaseTimelineService.getAllPhaseTimelines();
+      const timelineMap = new Map(phaseTimelines.map(t => [t.phaseId, t]));
+
       // Process phase progress using real data
       setLoadingStage('Analyzing your learning progress...');
       console.log('Processing phase progress with real data...');
       const phaseProgressPromises = phases.map(async (phase) => {
-        const phaseTopics = detailedTopics[phase.name] || [];
-        const topics: Topic[] = phaseTopics.map((topic, index) => ({
-          id: `topic-${phase.name}-${topic.name}`.toLowerCase().replace(/\s+/g, '-'),
-          name: topic.name,
-          order: topic.order,
-          deliverable: topic.deliverable,
-          description: topic.description || '',
-          phase_id: phase.id,
-          created_at: new Date()
-        }));
+        const topics = topicsByPhase.get(phase.id) || [];
+        console.log(`Phase ${phase.name} has ${topics.length} topics`);
 
         // Calculate real topic completion based on goals and reflections
         const topicProgressPromises = topics.map(async (topic) => {
@@ -391,16 +407,34 @@ const StudentJourney: React.FC = () => {
 
         const topicProgress = await Promise.all(topicProgressPromises);
 
-        const completedTopics = topicProgress.filter(tp => tp.completed).length;
+        // Find earliest goal creation date for this phase
+        // Try phase_id matching first, fallback to topic-based matching
+        let phaseGoals = userGoals.filter(goal => goal.phase_id === phase.id);
+
+        // If no goals found by phase_id, try topic-based matching as fallback
+        if (phaseGoals.length === 0) {
+          const phaseTopicIds = topics.map(t => t.id);
+          phaseGoals = userGoals.filter(goal => phaseTopicIds.includes(goal.topic_id));
+          console.log(`Phase ${phase.name}: found ${phaseGoals.length} goals via topic fallback`);
+        } else {
+          console.log(`Phase ${phase.name}: found ${phaseGoals.length} goals via phase_id`);
+        }
+
+        const earliestGoalDate = phaseGoals.length > 0
+          ? new Date(Math.min(...phaseGoals.map(g => new Date(g.created_at).getTime())))
+          : undefined;        const completedTopics = topicProgress.filter(tp => tp.completed).length;
         const totalTopics = topicProgress.length;
         const progressPercentage = totalTopics > 0 ? (completedTopics / totalTopics) * 100 : 0;
+        const expectedDays = timelineMap.get(phase.id)?.expectedDays || null;
 
         return {
           phase,
           topics: topicProgress,
           completedTopics,
           totalTopics,
-          progressPercentage
+          progressPercentage,
+          expectedDays,
+          earliestGoalDate
         };
       });
 
@@ -423,6 +457,7 @@ const StudentJourney: React.FC = () => {
 
       // Calculate phase duration data for the chart
       const durationData: PhaseDurationData[] = calculatePhaseDurations(phaseProgressData, userData?.campus_joining_date);
+      console.log('Duration data:', durationData);
 
       // Try to load house averages (this was commented out before)
       let houseData: HouseAverageData[] = [];
@@ -439,6 +474,7 @@ const StudentJourney: React.FC = () => {
 
       // Combine student data with house averages
       const combinedData = combineChartData(durationData, houseData);
+      console.log('Combined chart data:', combinedData);
       setCombinedChartData(combinedData);
 
       console.log('Real journey data loaded successfully');
@@ -573,33 +609,7 @@ const StudentJourney: React.FC = () => {
           </div>
         </div>
 
-        {/* Phase-wise Progress */}
-        <div className="mb-8">
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">Phase Progress</h3>
-          <div className="space-y-4">
-            {phaseProgress.map((phaseData) => (
-              <div key={phaseData.phase.id} className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-lg font-medium text-gray-900">{phaseData.phase.name}</h4>
-                  <span className="text-sm text-gray-600">
-                    {phaseData.completedTopics}/{phaseData.totalTopics} topics completed
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${phaseData.progressPercentage}%` }}
-                  ></div>
-                </div>
-                <p className="text-sm text-gray-600 mt-1">
-                  {Math.round(phaseData.progressPercentage)}% complete
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Phase Duration Chart */}
+        {/* Phase Duration Chart - Moved up after stats */}
         <div className="mb-8">
           <h3 className="text-xl font-semibold text-gray-900 mb-4">Phase Duration Analysis</h3>
           <div className="bg-gray-50 rounded-lg p-6">
@@ -607,45 +617,51 @@ const StudentJourney: React.FC = () => {
               Your Progress vs {userData?.house} House Average
             </h4>
             <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={combinedChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="phaseLabel"
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis
-                    label={{ value: 'Days Spent', angle: -90, position: 'insideLeft' }}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <Tooltip
-                    formatter={(value: number, name: string) => {
-                      if (name === 'yourDays') return [`${value} days`, 'Your Progress'];
-                      if (name === 'houseAverage') return [`${value} days`, 'House Average'];
-                      return [`${value} days`, name];
-                    }}
-                    labelFormatter={(label: string) => `${label}`}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="yourDays"
-                    stroke="#3B82F6"
-                    strokeWidth={3}
-                    dot={{ fill: '#3B82F6', strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, stroke: '#3B82F6', strokeWidth: 2 }}
-                    name="Your Progress"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="houseAverage"
-                    stroke="#10B981"
-                    strokeWidth={3}
-                    dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, stroke: '#10B981', strokeWidth: 2 }}
-                    name="House Average"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              {combinedChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={combinedChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="phaseLabel"
+                      tick={{ fontSize: 12 }}
+                    />
+                    <YAxis
+                      label={{ value: 'Days Spent', angle: -90, position: 'insideLeft' }}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip
+                      formatter={(value: number, name: string) => {
+                        if (name === 'yourDays') return [`${value} days`, 'Your Progress'];
+                        if (name === 'houseAverage') return [`${value} days`, 'House Average'];
+                        return [`${value} days`, name];
+                      }}
+                      labelFormatter={(label: string) => `${label}`}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="yourDays"
+                      stroke="#3B82F6"
+                      strokeWidth={3}
+                      dot={{ fill: '#3B82F6', strokeWidth: 2, r: 6 }}
+                      activeDot={{ r: 8, stroke: '#3B82F6', strokeWidth: 2 }}
+                      name="Your Progress"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="houseAverage"
+                      stroke="#10B981"
+                      strokeWidth={3}
+                      dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
+                      activeDot={{ r: 8, stroke: '#10B981', strokeWidth: 2 }}
+                      name="House Average"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  Loading chart data...
+                </div>
+              )}
             </div>
 
             {/* Legend */}
@@ -661,6 +677,40 @@ const StudentJourney: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Phase-wise Progress - Moved down after chart */}
+        <div className="mb-8">
+          <h3 className="text-xl font-semibold text-gray-900 mb-4">Phase Progress</h3>
+          <div className="space-y-4">
+            {phaseProgress.map((phaseData) => (
+              <div key={phaseData.phase.id} className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-lg font-medium text-gray-900">{phaseData.phase.name}</h4>
+                  <div className="flex items-center space-x-4">
+                    {phaseData.expectedDays && (
+                      <span className="text-sm text-blue-600 font-medium">
+                        Expected: {phaseData.expectedDays} days
+                      </span>
+                    )}
+                    <span className="text-sm text-gray-600">
+                      {phaseData.completedTopics}/{phaseData.totalTopics} topics completed
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${phaseData.progressPercentage}%` }}
+                  ></div>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">
+                  {Math.round(phaseData.progressPercentage)}% complete
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div>
           <h3 className="text-xl font-semibold text-gray-900 mb-4">Topic Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

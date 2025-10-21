@@ -1292,12 +1292,29 @@ Build your professional profile, practice interviews, and develop job search str
 • Practice interview techniques
 • Learn job search strategies
 • Build professional networking skills`
+    },
+    {
+      name: 'Internship Tasks',
+      order: 3,
+      maxTime: 480, // 8 hours
+      keyTags: ['Internship', 'Professional Development', 'Work Experience', 'Career Growth'],
+      deliverable: 'Internship task completion and professional development goals',
+      icon: '💻',
+      technologies: ['Project Management', 'Professional Communication', 'Task Execution', 'Time Management'],
+      description: `Complete internship tasks and develop professional work experience.
+Focus on real-world application of skills, professional communication, and career development.
+
+**Learning Objectives:**
+• Execute assigned internship tasks effectively
+• Develop professional communication skills
+• Apply learned technical skills in real projects
+• Build work experience and professional portfolio`
     }
   ]
 };
 
 // Simplified topics for backward compatibility
-export const initialTopics: { [phaseName: string]: Omit<Topic, 'id' | 'created_at' | 'phase_id'>[] } = {
+export const initialTopics: { [phaseName: string]: Omit<Topic, 'id' | 'created_at' | 'updated_at' | 'phase_id'>[] } = {
   'Phase 1: Student Profile & Course Portal (HTML Only)': detailedTopics['Phase 1: Student Profile & Course Portal (HTML Only)'].map(topic => ({
     name: topic.name,
     order: topic.order

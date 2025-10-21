@@ -1,5 +1,4 @@
 import {
-  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   GoogleAuthProvider,
@@ -7,8 +6,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
-import { auth, db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth } from './firebase';
 import { UserService } from './firestore';
 import { User } from '../types';
 
@@ -20,65 +18,28 @@ export class AuthService {
       this.googleProvider = new GoogleAuthProvider();
       this.googleProvider.addScope('email');
       this.googleProvider.addScope('profile');
+      // Add Google Calendar API scopes
+      this.googleProvider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+      this.googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
       
       // Set custom parameters for OAuth with minimal configuration
       this.googleProvider.setCustomParameters({
-        prompt: 'select_account'
+        prompt: 'select_account',
+        access_type: 'offline' // Request offline access for refresh tokens
       });
     }
     return this.googleProvider;
   }
 
-  // Sign in with Google using popup (primary method)
+  // Sign in with Google using redirect (primary method)
   static async signInWithGoogle(): Promise<FirebaseUser> {
     try {
-      // First try popup
-      const userCredential = await signInWithPopup(auth, this.getGoogleProvider());
-      
-      try {
-        // Try to get existing user document
-        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-        
-        if (!userDoc.exists()) {
-          // Create new user document if it doesn't exist
-          await setDoc(doc(db, 'users', userCredential.user.uid), {
-            id: userCredential.user.uid,
-            email: userCredential.user.email || '',
-            displayName: userCredential.user.displayName || '',
-            photoURL: userCredential.user.photoURL || '',
-            role: 'student', // Default role
-            createdAt: new Date().toISOString(),
-            lastLogin: new Date().toISOString()
-          });
-        }
-
-        return await this.handleGoogleSignInResult(userCredential.user);
-      } catch (dbError: any) {
-        console.error('Error handling user data:', dbError);
-        // Still return the user even if database operations fail
-        return userCredential.user;
-      }
-    } catch (error: any) {
-      console.error('Error signing in with Google popup:', error);
-      
-      // If popup fails due to CORS issues, try redirect method
-      if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
-        console.log('Popup blocked, trying redirect method...');
-        return await this.signInWithGoogleRedirect();
-      }
-      
-      throw error;
-    }
-  }
-
-  // Alternative sign in with Google using redirect (fallback method)
-  static async signInWithGoogleRedirect(): Promise<FirebaseUser> {
-    try {
+      // Use redirect method for better compatibility
       await signInWithRedirect(auth, this.getGoogleProvider());
       // This will cause a page redirect, so we won't reach this point
       // The result will be handled by handleRedirectResult
       throw new Error('Redirect initiated');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error signing in with Google redirect:', error);
       throw error;
     }

@@ -39,11 +39,17 @@ const AdminJourneyTracking: React.FC = () => {
   const [selectedTopic, setSelectedTopic] = useState<{
     topicId: string;
     topicName: string;
-    students: Array<{ studentName: string; totalDays: number; goalCount: number; latestActivity: Date }>;
+    students: Array<{ studentName: string; totalDays: number; goalCount: number; latestActivity: Date; startDate: Date }>;
+  } | null>(null);
+
+  const [selectedStudentGoals, setSelectedStudentGoals] = useState<{
+    studentName: string;
+    goals: Array<{ id: string; goal_text: string; created_at: Date; status: string }>;
   } | null>(null);
 
   const calculateStudentStats = useCallback(async (): Promise<StudentStats[]> => {
     try {
+      // Get all students and goals to show ACTIVE engagement (not just completion)
       const [goals, users] = await Promise.all([
         GoalService.getAllGoals(),
         UserService.getAll(COLLECTIONS.USERS)
@@ -57,46 +63,27 @@ const AdminJourneyTracking: React.FC = () => {
       // Filter goals to only include goals from students
       const studentGoals = goals.filter((goal: any) => studentIds.has(goal.student_id));
 
-      // Group goals by student and find joining date or earliest goal date per student
-      const studentGoalGroups = new Map<string, any[]>();
-      studentGoals.forEach((goal: any) => {
-        if (!studentGoalGroups.has(goal.student_id)) {
-          studentGoalGroups.set(goal.student_id, []);
-        }
-        studentGoalGroups.get(goal.student_id)!.push(goal);
-      });
-
       const stats: StudentStats[] = [];
-      studentGoalGroups.forEach((studentGoalsList, studentId) => {
-        // Find the student's joining date, or fall back to earliest goal date
-        const student = students.find((s: any) => s.id === studentId);
-        let startDate: Date;
+      studentGoals.forEach((goal: any) => {
+        const student = students.find((s: any) => s.id === goal.student_id);
 
-        if (student && (student as any).campus_joining_date) {
-          startDate = new Date((student as any).campus_joining_date);
-        } else {
-          // Fallback to earliest goal date if no joining date
-          const earliestGoal = studentGoalsList.reduce((earliest, current) => {
-            const currentDate = new Date(current.created_at);
-            const earliestDate = new Date(earliest.created_at);
-            return currentDate < earliestDate ? current : earliest;
-          });
-          startDate = new Date(earliestGoal.created_at);
-        }
+        // Always prefer the actual goal creation timestamp for phase timing
+        const goalCreatedAt = goal.created_at ? new Date(goal.created_at) : null;
+        const fallbackStart = student && (student as any).campus_joining_date
+          ? new Date((student as any).campus_joining_date)
+          : new Date();
+        const startDate = goalCreatedAt || fallbackStart;
 
         const now = new Date();
-        const daysSpent = Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        const daysSpent = Math.max(0, Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
 
-        // Create stats for each goal
-        studentGoalsList.forEach(goal => {
-          stats.push({
-            studentId,
-            studentName: userMap.get(studentId) || 'Unknown Student',
-            phaseId: goal.phase_id,
-            topicId: goal.topic_id,
-            daysSpent,
-            earliestGoalDate: startDate
-          });
+        stats.push({
+          studentId: goal.student_id,
+          studentName: userMap.get(goal.student_id) || 'Unknown Student',
+          phaseId: goal.phase_id,
+          topicId: goal.topic_id,
+          daysSpent,
+          earliestGoalDate: startDate
         });
       });
 
@@ -159,13 +146,14 @@ const AdminJourneyTracking: React.FC = () => {
         const topicData: TopicData[] = [];
         phaseTopics.forEach(topic => {
           const topicStats = phaseStudentStats.filter(stat => stat.topicId === topic.id);
+          const uniqueStudents = new Set(topicStats.map(stat => stat.studentId));
           const topicTotalDays = topicStats.reduce((sum, stat) => sum + stat.daysSpent, 0);
           const topicAverageDays = topicStats.length > 0 ? Math.round(topicTotalDays / topicStats.length) : 0;
 
           topicData.push({
             topicId: topic.id,
             topicName: topic.name,
-            studentCount: topicStats.length,
+            studentCount: uniqueStudents.size, // Count unique students, not total goals
             averageDaysSpent: topicAverageDays
           });
         });
@@ -194,13 +182,14 @@ const AdminJourneyTracking: React.FC = () => {
         const topicData: TopicData[] = [];
         phaseTopics.forEach(topic => {
           const topicStats = phaseStudentStats.filter(stat => stat.topicId === topic.id);
+          const uniqueStudents = new Set(topicStats.map(stat => stat.studentId));
           const topicTotalDays = topicStats.reduce((sum, stat) => sum + stat.daysSpent, 0);
           const topicAverageDays = topicStats.length > 0 ? Math.round(topicTotalDays / topicStats.length) : 0;
 
           topicData.push({
             topicId: topic.id,
             topicName: topic.name,
-            studentCount: topicStats.length,
+            studentCount: uniqueStudents.size, // Count unique students, not total goals
             averageDaysSpent: topicAverageDays
           });
         });
@@ -225,15 +214,27 @@ const AdminJourneyTracking: React.FC = () => {
     }
   }, [calculateStudentStats]);
 
-  const handleTopicClick = useCallback((topicId: string, topicName: string, phaseId: string) => {
+  const handleTopicClick = useCallback(async (topicId: string, topicName: string, phaseId: string) => {
     // Find all students who have goals for this topic
     const topicStudents = studentStats.filter((stat: StudentStats) => stat.topicId === topicId);
 
+    // Get student data for joining dates
+    const users = await UserService.getAll(COLLECTIONS.USERS);
+    const students = users.filter((user: any) => !user.isAdmin);
+    const studentMapDb = new Map(students.map((user: any) => [user.id, user]));
+
     // Deduplicate students and aggregate their data
-    const studentMap = new Map<string, { studentName: string; totalDays: number; goalCount: number; latestActivity: Date }>();
+    const studentMap = new Map<string, { studentName: string; totalDays: number; goalCount: number; latestActivity: Date; startDate: Date }>();
 
     topicStudents.forEach((stat: StudentStats) => {
       const existing = studentMap.get(stat.studentId);
+      const studentData = studentMapDb.get(stat.studentId);
+      const startDate = stat.earliestGoalDate
+        ? new Date(stat.earliestGoalDate)
+        : studentData?.campus_joining_date
+          ? new Date(studentData.campus_joining_date)
+          : new Date();
+
       if (existing) {
         // Update existing student data
         existing.totalDays = Math.max(existing.totalDays, stat.daysSpent); // Use the maximum days spent
@@ -241,13 +242,17 @@ const AdminJourneyTracking: React.FC = () => {
         if (stat.earliestGoalDate > existing.latestActivity) {
           existing.latestActivity = stat.earliestGoalDate;
         }
+        if (startDate < existing.startDate) {
+          existing.startDate = startDate;
+        }
       } else {
         // Add new student
         studentMap.set(stat.studentId, {
           studentName: stat.studentName,
           totalDays: stat.daysSpent,
           goalCount: 1,
-          latestActivity: stat.earliestGoalDate
+          latestActivity: stat.earliestGoalDate,
+          startDate: startDate
         });
       }
     });
@@ -261,7 +266,33 @@ const AdminJourneyTracking: React.FC = () => {
       topicName,
       students: studentDetails
     });
+  setSelectedTopic({
+      topicId,
+      topicName,
+      students: studentDetails
+    });
   }, [studentStats]);
+
+  const handleGoalClick = useCallback(async (studentId: string, studentName: string, topicId: string) => {
+    try {
+      // Fetch goals for this student and topic
+      const goals = await GoalService.getGoalsByTopicAndStudent(topicId, studentId);
+
+      const goalDetails = goals.map(goal => ({
+        id: goal.id,
+        goal_text: goal.goal_text || 'No goal text',
+        created_at: goal.created_at,
+        status: goal.status || 'pending'
+      }));
+
+      setSelectedStudentGoals({
+        studentName,
+        goals: goalDetails
+      });
+    } catch (error) {
+      console.error('Error fetching student goals:', error);
+    }
+  }, []);
 
   useEffect(() => {
     loadTrackingData();
@@ -488,13 +519,28 @@ const AdminJourneyTracking: React.FC = () => {
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-gray-900 font-medium">{student.studentName}</span>
-                    <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                    <span 
+                      className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Find the student ID from the studentStats
+                        const studentStat = studentStats.find(s => s.studentName === student.studentName && s.topicId === selectedTopic.topicId);
+                        if (studentStat) {
+                          handleGoalClick(studentStat.studentId, student.studentName, selectedTopic.topicId);
+                        }
+                      }}
+                    >
                       {student.goalCount} goal{student.goalCount !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">{student.totalDays} days</span>
+                  <div className="flex items-center gap-4">
+                    <div className="text-xs text-gray-500">
+                      <div>Started: {student.startDate.toLocaleDateString()}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm text-gray-600">{student.totalDays} days</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -510,6 +556,67 @@ const AdminJourneyTracking: React.FC = () => {
           <div className="flex justify-end p-6 border-t bg-gray-50">
             <button
               onClick={() => setSelectedTopic(null)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Goal Details Modal */}
+    {selectedStudentGoals && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+          <div className="flex items-center justify-between p-6 border-b">
+            <h2 className="text-xl font-semibold text-gray-900">
+              Goals for {selectedStudentGoals.studentName}
+            </h2>
+            <button
+              onClick={() => setSelectedStudentGoals(null)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+
+          <div className="p-6 overflow-y-auto max-h-[60vh]">
+            <div className="space-y-4">
+              {selectedStudentGoals.goals.map((goal) => (
+                <div
+                  key={goal.id}
+                  className="p-4 bg-gray-50 rounded-md border border-gray-100"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="text-gray-900 font-medium mb-1">{goal.goal_text}</p>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span>Created: {goal.created_at.toLocaleDateString()}</span>
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          goal.status === 'approved' ? 'bg-green-100 text-green-800' :
+                          goal.status === 'reviewed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {goal.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {selectedStudentGoals.goals.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                No goals found for this student.
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end p-6 border-t bg-gray-50">
+            <button
+              onClick={() => setSelectedStudentGoals(null)}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               Close

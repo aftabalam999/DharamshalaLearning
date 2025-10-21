@@ -14,7 +14,11 @@ import {
   CheckCircle,
   XCircle,
   Award,
-  Clock
+  Clock,
+  Crown,
+  GraduationCap,
+  UserCog,
+  Settings
 } from 'lucide-react';
 import AttendanceDashboard from './AttendanceDashboard';
 
@@ -27,6 +31,11 @@ const AdminUserManagement: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null);
   const [showStatusModal, setShowStatusModal] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<'active' | 'inactive' | 'dropout' | 'placed' | 'on_leave'>('active');
+  const [showRoleModal, setShowRoleModal] = useState<boolean>(false);
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'academic_associate' | 'super_mentor' | 'mentor' | 'student'>('student');
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     loadUsers();
@@ -99,6 +108,42 @@ const AdminUserManagement: React.FC = () => {
     }
   };
 
+  const handleUpdateRole = async (userId: string, newRole: 'admin' | 'academic_associate' | 'super_mentor' | 'mentor' | 'student') => {
+    try {
+      setUpdating(userId);
+      await AdminService.updateUserRole(userId, newRole);
+      
+      // Update local state
+      setUsers(users.map(user => 
+        user.id === userId ? { ...user, role: newRole } : user
+      ));
+      
+      setShowRoleModal(false);
+      setSelectedUser(null);
+      setSelectedRole('student');
+      setSuccessMessage('User role updated successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      setErrorMessage('Failed to update user role');
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const handleOpenRoleModal = (user: any) => {
+    setSelectedUser(user);
+    setSelectedRole(user.role);
+    setShowRoleModal(true);
+  };
+
+  const handleCloseRoleModal = () => {
+    setSelectedUser(null);
+    setSelectedRole('student');
+    setShowRoleModal(false);
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'active': return <CheckCircle className="h-4 w-4 text-green-500" />;
@@ -129,6 +174,50 @@ const AdminUserManagement: React.FC = () => {
       case 'placed': return 'bg-purple-100 text-purple-800';
       case 'on_leave': return 'bg-orange-100 text-orange-800';
       default: return 'bg-green-100 text-green-800';
+    }
+  };
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin': return <Crown className="h-3 w-3 mr-1" />;
+      case 'academic_associate': return <GraduationCap className="h-3 w-3 mr-1" />;
+      case 'super_mentor': return <UserCog className="h-3 w-3 mr-1" />;
+      case 'mentor': return <UserCheck className="h-3 w-3 mr-1" />;
+      case 'student': return <Users className="h-3 w-3 mr-1" />;
+      default: return <Users className="h-3 w-3 mr-1" />;
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'admin': return 'Admin';
+      case 'academic_associate': return 'Academic Associate';
+      case 'super_mentor': return 'Super Mentor';
+      case 'mentor': return 'Mentor';
+      case 'student': return 'Student';
+      default: return 'Student';
+    }
+  };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'admin': return 'bg-red-100 text-red-800';
+      case 'academic_associate': return 'bg-blue-100 text-blue-800';
+      case 'super_mentor': return 'bg-purple-100 text-purple-800';
+      case 'mentor': return 'bg-green-100 text-green-800';
+      case 'student': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getRoleDescription = (role: string) => {
+    switch (role) {
+      case 'admin': return 'Full system access, user management, backend operations';
+      case 'academic_associate': return 'Admin access without backend management';
+      case 'super_mentor': return 'Mentor management and advanced mentoring';
+      case 'mentor': return 'Student mentoring and feedback';
+      case 'student': return 'Learning access, goal setting, reflections';
+      default: return 'Standard student access';
     }
   };
 
@@ -246,6 +335,29 @@ const AdminUserManagement: React.FC = () => {
 
       {/* Attendance Dashboard */}
       <AttendanceDashboard />
+
+      {/* Messages */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex">
+            <CheckCircle className="h-5 w-5 text-green-400" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-green-800">{successMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex">
+            <XCircle className="h-5 w-5 text-red-400" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-red-800">{errorMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -401,17 +513,12 @@ const AdminUserManagement: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {user.isAdmin ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                          <Shield className="h-3 w-3 mr-1" />
-                          Admin
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          <Users className="h-3 w-3 mr-1" />
-                          Student
-                        </span>
-                      )}
+                      <div className="flex items-center">
+                        <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
+                          {getRoleIcon(user.role)}
+                          {getRoleLabel(user.role)}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(user.status || 'active')}`}>
@@ -445,6 +552,7 @@ const AdminUserManagement: React.FC = () => {
                               ? 'bg-red-100 text-red-700 hover:bg-red-200'
                               : 'bg-green-100 text-green-700 hover:bg-green-200'
                           } ${updating === user.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          title={user.isAdmin ? 'Remove admin privileges' : 'Grant admin privileges'}
                         >
                           {updating === user.id ? (
                             <span className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current"></span>
@@ -455,11 +563,22 @@ const AdminUserManagement: React.FC = () => {
                           )}
                         </button>
 
+                        {/* Role Change Button */}
+                        <button
+                          onClick={() => handleOpenRoleModal(user)}
+                          disabled={updating === user.id}
+                          className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors disabled:opacity-50"
+                          title="Change Role"
+                        >
+                          <UserCog className="h-3 w-3" />
+                        </button>
+
                         {/* Status Button */}
                         <button
                           onClick={() => setShowStatusModal(user.id)}
                           disabled={updating === user.id}
                           className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors disabled:opacity-50"
+                          title="Change user status"
                         >
                           {getStatusIcon(user.status || 'active')}
                         </button>
@@ -469,6 +588,7 @@ const AdminUserManagement: React.FC = () => {
                           onClick={() => setShowDeleteModal(user.id)}
                           disabled={updating === user.id}
                           className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors disabled:opacity-50"
+                          title="Delete user"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -575,6 +695,58 @@ const AdminUserManagement: React.FC = () => {
                 className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {updating ? 'Updating...' : 'Update Status'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Role Change Modal */}
+      {showRoleModal && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <UserCog className="h-6 w-6 text-purple-600 mr-2" />
+              <h3 className="text-lg font-semibold text-gray-900">Change User Role</h3>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                <strong>User:</strong> {selectedUser.name} ({selectedUser.email})
+              </p>
+              <p className="text-sm text-gray-600 mb-4">
+                <strong>Current Role:</strong> {getRoleLabel(selectedUser.role)}
+              </p>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                New Role
+              </label>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value as 'admin' | 'academic_associate' | 'super_mentor' | 'mentor' | 'student')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="student">Student - Learning access, goal setting, reflections</option>
+                <option value="mentor">Mentor - Student mentoring and feedback</option>
+                <option value="super_mentor">Super Mentor - Mentor management and advanced mentoring</option>
+                <option value="academic_associate">Academic Associate - Admin access without backend management</option>
+                <option value="admin">Admin - Full system access, user management, backend operations</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-2">
+                {getRoleDescription(selectedRole)}
+              </p>
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={handleCloseRoleModal}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => selectedUser && handleUpdateRole(selectedUser.id, selectedRole)}
+                disabled={updating !== null}
+                className="px-4 py-2 text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+              >
+                {updating ? 'Updating...' : 'Update Role'}
               </button>
             </div>
           </div>

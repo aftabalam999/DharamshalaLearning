@@ -32,7 +32,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   // Check admin access if required
-  if (requireAdmin && !userData.isAdmin) {
+  if (requireAdmin && !userData.isAdmin && userData.role !== 'academic_associate') {
     return <Navigate to="/unauthorized" replace />;
   }
 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { GoalService, ReflectionService, PairProgrammingService } from '../../services/dataServices';
+import { GoalService, ReflectionService, EnhancedPairProgrammingService } from '../../services/dataServices';
 import { UserService } from '../../services/firestore';
-import { User, DailyGoal, DailyReflection, PairProgrammingRequest } from '../../types';
+import { User, DailyGoal, DailyReflection, PairProgrammingSession } from '../../types';
 import { 
   ArrowLeft, 
   Target, 
@@ -20,7 +20,7 @@ const MenteeReview: React.FC = () => {
   const [student, setStudent] = useState<User | null>(null);
   const [goals, setGoals] = useState<DailyGoal[]>([]);
   const [reflections, setReflections] = useState<DailyReflection[]>([]);
-  const [pairRequests, setPairRequests] = useState<PairProgrammingRequest[]>([]);
+  const [pairRequests, setPairRequests] = useState<PairProgrammingSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'goals' | 'reflections' | 'pairs'>('goals');
 
@@ -34,7 +34,7 @@ const MenteeReview: React.FC = () => {
         UserService.getUserById(studentId),
         GoalService.getGoalsByStudent(studentId),
         ReflectionService.getReflectionsByStudent(studentId),
-        PairProgrammingService.getRequestsByStudent(studentId)
+        EnhancedPairProgrammingService.getSessionsByUser(studentId, 'mentee')
       ]);
 
       setStudent(studentData);
@@ -356,14 +356,7 @@ const MenteeReview: React.FC = () => {
                         {request.description && (
                           <p className="text-gray-600 text-sm mb-2">{request.description}</p>
                         )}
-                        {request.feedback && (
-                          <div className="bg-green-50 border border-green-200 rounded p-2">
-                            <p className="text-sm text-green-800">
-                              <MessageSquare className="inline h-4 w-4 mr-1" />
-                              Session Feedback: {request.feedback}
-                            </p>
-                          </div>
-                        )}
+                        {/* Feedback will be shown in session details */}
                       </div>
                     </div>
                   </div>

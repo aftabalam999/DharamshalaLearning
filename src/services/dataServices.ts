@@ -1,4 +1,5 @@
-import { FirestoreService, COLLECTIONS } from './firestore';
+import { FirestoreService, COLLECTIONS, UserService } from './firestore';
+import { PairProgrammingScheduler } from './pairProgrammingScheduler';
 import {
   Phase,
   Topic,
@@ -10,12 +11,22 @@ import {
   LeaveRequest,
   MentorChangeRequest,
   MentorWithCapacity,
-  User
+  User,
+  MenteeReview,
+  PairProgrammingSession,
+  PairProgrammingGoal,
+  MentorFeedback,
+  MenteeFeedback,
+  SessionCompletion,
+  LeaveImpact,
+  Notification,
+  ReminderSettings,
+  PairProgrammingStats,
 } from '../types';
 
 // Phase Service
 export class PhaseService extends FirestoreService {
-  static async createPhase(phaseData: Omit<Phase, 'id'>): Promise<string> {
+  static async createPhase(phaseData: Omit<Phase, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     try {
       return await this.create<Phase>(COLLECTIONS.PHASES, phaseData);
     } catch (error) {
@@ -67,7 +78,7 @@ export class PhaseService extends FirestoreService {
 
 // Topic Service
 export class TopicService extends FirestoreService {
-  static async createTopic(topicData: Omit<Topic, 'id'>): Promise<string> {
+  static async createTopic(topicData: Omit<Topic, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     try {
       return await this.create<Topic>(COLLECTIONS.TOPICS, topicData);
     } catch (error) {
@@ -234,6 +245,17 @@ export class GoalService extends FirestoreService {
       throw error;
     }
   }
+
+  static async getGoalsByTopicAndStudent(topicId: string, studentId: string): Promise<DailyGoal[]> {
+    try {
+      // Get all goals for the student, then filter by topic client-side
+      const studentGoals = await this.getGoalsByStudent(studentId);
+      return studentGoals.filter(goal => goal.topic_id === topicId);
+    } catch (error) {
+      console.error('Error fetching goals by topic and student:', error);
+      throw error;
+    }
+  }
 }
 
 // Daily Reflection Service
@@ -247,7 +269,7 @@ export class ReflectionService extends FirestoreService {
     }
   }
 
-  static async createReflection(reflectionData: Omit<DailyReflection, 'id' | 'created_at'>): Promise<string> {
+  static async createReflection(reflectionData: Omit<DailyReflection, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     try {
       return await this.create<DailyReflection>(COLLECTIONS.DAILY_REFLECTIONS, reflectionData as any);
     } catch (error) {
@@ -352,7 +374,7 @@ export class ReflectionService extends FirestoreService {
 
 // Pair Programming Service
 export class PairProgrammingService extends FirestoreService {
-  static async createRequest(requestData: Omit<PairProgrammingRequest, 'id'>): Promise<string> {
+  static async createRequest(requestData: Omit<PairProgrammingRequest, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
     try {
       return await this.create<PairProgrammingRequest>(COLLECTIONS.PAIR_PROGRAMMING_REQUESTS, requestData);
     } catch (error) {
@@ -502,14 +524,20 @@ export class AttendanceService extends FirestoreService {
     endDate?: Date
   ): Promise<Attendance[]> {
     try {
-      return await this.getWhere<Attendance>(
+      // Remove ordering to avoid index requirement, sort client-side if needed
+      const attendanceRecords = await this.getWhere<Attendance>(
         COLLECTIONS.ATTENDANCE,
         'student_id',
         '==',
-        studentId,
-        'date',
-        'desc'
+        studentId
       );
+
+      // Sort by date descending client-side
+      return attendanceRecords.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+        const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+        return dateB.getTime() - dateA.getTime();
+      });
     } catch (error) {
       console.error('Error fetching student attendance:', error);
       throw error;
@@ -568,14 +596,20 @@ export class LeaveService extends FirestoreService {
 
   static async getStudentLeaves(studentId: string): Promise<LeaveRequest[]> {
     try {
-      return await this.getWhere<LeaveRequest>(
+      // Remove ordering to avoid index requirement, sort client-side if needed
+      const leaveRecords = await this.getWhere<LeaveRequest>(
         COLLECTIONS.LEAVE_REQUESTS,
         'student_id',
         '==',
-        studentId,
-        'start_date',
-        'desc'
+        studentId
       );
+
+      // Sort by start_date descending client-side
+      return leaveRecords.sort((a, b) => {
+        const dateA = a.start_date instanceof Date ? a.start_date : new Date(a.start_date);
+        const dateB = b.start_date instanceof Date ? b.start_date : new Date(b.start_date);
+        return dateB.getTime() - dateA.getTime();
+      });
     } catch (error) {
       console.error('Error fetching student leaves:', error);
       throw error;
@@ -742,6 +776,19 @@ export class AdminService extends FirestoreService {
     }
   }
 
+  // Update user role
+  static async updateUserRole(userId: string, role: 'admin' | 'academic_associate' | 'super_mentor' | 'mentor' | 'student'): Promise<void> {
+    try {
+      return await this.update<any>(COLLECTIONS.USERS, userId, { 
+        role,
+        updated_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      throw error;
+    }
+  }
+
   // Delete user (soft delete by setting status to 'inactive')
   static async deleteUser(userId: string): Promise<void> {
     try {
@@ -881,6 +928,31 @@ export class AdminService extends FirestoreService {
     } catch (error) {
       console.error('Error getting suggested mentors:', error);
       return this.getPotentialMentors();
+    }
+  }
+
+  // Get student's current topic and phase information
+  static async getStudentCurrentTopicAndPhase(studentId: string): Promise<{ topic: string; phase: string; topicId: string; phaseId: string } | null> {
+    try {
+      // Get student's latest goal to determine current topic and phase
+      const goals = await GoalService.getGoalsByStudent(studentId, 1);
+      if (goals.length === 0) return null;
+
+      const latestGoal = goals[0];
+      const topic = await TopicService.getTopicById(latestGoal.topic_id);
+      const phase = await PhaseService.getPhaseById(latestGoal.phase_id);
+
+      if (!topic || !phase) return null;
+
+      return {
+        topic: topic.name,
+        phase: phase.name,
+        topicId: topic.id,
+        phaseId: phase.id
+      };
+    } catch (error) {
+      console.error('Error getting student current topic and phase:', error);
+      return null;
     }
   }
 }
@@ -1244,6 +1316,894 @@ export class MentorshipService extends FirestoreService {
 
     } catch (error) {
       console.error('Error cancelling mentor request:', error);
+      throw error;
+    }
+  }
+}
+
+// Phase Timeline Service
+export interface PhaseTimelineData {
+  id: string;
+  phaseId: string;
+  phaseName: string;
+  expectedDays: number | null;
+  isStandalone: boolean;
+  updatedAt: Date;
+  updatedBy: string;
+}
+
+export class PhaseTimelineService extends FirestoreService {
+  static async getAllPhaseTimelines(): Promise<PhaseTimelineData[]> {
+    try {
+      const timelines = await this.getAll<PhaseTimelineData>('phase_timelines');
+      return timelines.sort((a, b) => {
+        // Sort by phase order if available, otherwise by name
+        const aOrder = a.phaseName.match(/Phase (\d+)/)?.[1];
+        const bOrder = b.phaseName.match(/Phase (\d+)/)?.[1];
+        if (aOrder && bOrder) {
+          return parseInt(aOrder) - parseInt(bOrder);
+        }
+        return a.phaseName.localeCompare(b.phaseName);
+      });
+    } catch (error) {
+      console.error('Error fetching phase timelines:', error);
+      throw error;
+    }
+  }
+
+  static async getPhaseTimelineByPhaseId(phaseId: string): Promise<PhaseTimelineData | null> {
+    try {
+      const timelines = await this.getWhere<PhaseTimelineData>('phase_timelines', 'phaseId', '==', phaseId);
+      return timelines[0] || null;
+    } catch (error) {
+      console.error('Error fetching phase timeline by phase ID:', error);
+      throw error;
+    }
+  }
+
+  static async savePhaseTimelines(timelines: Omit<PhaseTimelineData, 'id' | 'updatedAt'>[], userId: string): Promise<void> {
+    try {
+      // Delete existing timelines
+      const existingTimelines = await this.getAll<PhaseTimelineData>('phase_timelines');
+      for (const timeline of existingTimelines) {
+        await this.delete('phase_timelines', timeline.id);
+      }
+
+      // Add new timelines
+      for (const timeline of timelines) {
+        await this.create<PhaseTimelineData>('phase_timelines', {
+          ...timeline,
+          updatedAt: new Date(),
+          updatedBy: userId
+        });
+      }
+    } catch (error) {
+      console.error('Error saving phase timelines:', error);
+      throw error;
+    }
+  }
+
+  static async updatePhaseTimeline(phaseId: string, data: Partial<Pick<PhaseTimelineData, 'expectedDays' | 'isStandalone'>>, userId: string): Promise<void> {
+    try {
+      const existing = await this.getPhaseTimelineByPhaseId(phaseId);
+      if (existing) {
+        await this.update('phase_timelines', existing.id, {
+          ...data,
+          updatedAt: new Date(),
+          updatedBy: userId
+        });
+      } else {
+        // Create new timeline entry
+        const phase = await PhaseService.getPhaseById(phaseId);
+        if (phase) {
+          await this.create<PhaseTimelineData>('phase_timelines', {
+            phaseId,
+            phaseName: phase.name,
+            expectedDays: data.expectedDays || null,
+            isStandalone: data.isStandalone || false,
+            updatedAt: new Date(),
+            updatedBy: userId
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating phase timeline:', error);
+      throw error;
+    }
+  }
+}
+
+// Mentee Review Service
+export class MenteeReviewService extends FirestoreService {
+  static async createReview(reviewData: Omit<MenteeReview, 'id' | 'created_at' | 'updated_at'>): Promise<MenteeReview> {
+    try {
+      console.log('💾 [MenteeReviewService] Creating review with data:', reviewData);
+      
+      // Use the base create method which handles timestamps automatically
+      const docId = await this.create<MenteeReview>(COLLECTIONS.MENTEE_REVIEWS, reviewData);
+      console.log('💾 [MenteeReviewService] Review created with ID:', docId);
+      
+      // Retrieve the created document to return the full object with converted timestamps
+      const createdReview = await this.getById<MenteeReview>(COLLECTIONS.MENTEE_REVIEWS, docId);
+      if (!createdReview) {
+        throw new Error('Failed to retrieve created review');
+      }
+      
+      return createdReview;
+    } catch (error) {
+      console.error('Error creating mentee review:', error);
+      throw error;
+    }
+  }
+
+  static async getReviewsByStudent(studentId: string): Promise<MenteeReview[]> {
+    try {
+      return await this.getWhere<MenteeReview>(
+        COLLECTIONS.MENTEE_REVIEWS,
+        'student_id',
+        '==',
+        studentId
+      );
+    } catch (error) {
+      console.error('Error fetching mentee reviews by student:', error);
+      throw error;
+    }
+  }
+
+  static async getReviewsByMentor(mentorId: string): Promise<MenteeReview[]> {
+    try {
+      return await this.getWhere<MenteeReview>(
+        COLLECTIONS.MENTEE_REVIEWS,
+        'mentor_id',
+        '==',
+        mentorId
+      );
+    } catch (error) {
+      console.error('Error fetching mentee reviews by mentor:', error);
+      throw error;
+    }
+  }
+
+  static async getLatestReview(studentId: string): Promise<MenteeReview | null> {
+    try {
+      console.log('🔍 [MenteeReviewService] Fetching reviews for student:', studentId);
+      const reviews = await this.getWhere<MenteeReview>(
+        COLLECTIONS.MENTEE_REVIEWS,
+        'student_id',
+        '==',
+        studentId
+      );
+      console.log('🔍 [MenteeReviewService] Found reviews:', reviews.length, reviews);
+      
+      if (reviews.length === 0) return null;
+      
+      // Sort by created_at descending and return the latest
+      const sortedReviews = reviews.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      console.log('🔍 [MenteeReviewService] Latest review:', sortedReviews[0]);
+      return sortedReviews[0];
+    } catch (error) {
+      console.error('Error fetching latest mentee review:', error);
+      throw error;
+    }
+  }
+
+  static async getWeeklyReviews(weekStart: Date): Promise<MenteeReview[]> {
+    try {
+      // Get reviews from the current week
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7);
+      
+      return await this.getWhereCompound<MenteeReview>(
+        COLLECTIONS.MENTEE_REVIEWS,
+        [
+          { field: 'week_start', operator: '>=', value: weekStart },
+          { field: 'week_start', operator: '<', value: weekEnd }
+        ],
+        'created_at',
+        'desc'
+      );
+    } catch (error) {
+      console.error('Error fetching weekly mentee reviews:', error);
+      throw error;
+    }
+  }
+}
+
+// ===== ENHANCED PAIR PROGRAMMING SYSTEM SERVICES =====
+
+// Enhanced Pair Programming Service
+export class EnhancedPairProgrammingService extends FirestoreService {
+
+  // Session Management
+  static async createSession(sessionData: Omit<PairProgrammingSession, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      return await this.create<PairProgrammingSession>(COLLECTIONS.PAIR_PROGRAMMING_SESSIONS, sessionData);
+    } catch (error) {
+      console.error('Error creating pair programming session:', error);
+      throw error;
+    }
+  }
+
+  static async getSessionById(sessionId: string): Promise<PairProgrammingSession | null> {
+    try {
+      return await this.getById<PairProgrammingSession>(COLLECTIONS.PAIR_PROGRAMMING_SESSIONS, sessionId);
+    } catch (error) {
+      console.error('Error fetching session by ID:', error);
+      throw error;
+    }
+  }
+
+  static async updateSession(sessionId: string, updates: Partial<PairProgrammingSession>): Promise<void> {
+    try {
+      await this.update<PairProgrammingSession>(COLLECTIONS.PAIR_PROGRAMMING_SESSIONS, sessionId, {
+        ...updates,
+        updated_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error updating session:', error);
+      throw error;
+    }
+  }
+
+  static async getSessionsByUser(userId: string, userRole: 'mentee' | 'mentor' | 'all' = 'all'): Promise<PairProgrammingSession[]> {
+    try {
+      // Temporarily use separate queries to avoid compound index issues
+      const studentSessions = await this.getWhere<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        'student_id',
+        '==',
+        userId
+      );
+      const mentorSessions = await this.getWhere<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        'mentor_id',
+        '==',
+        userId
+      );
+
+      let allSessions = [...studentSessions, ...mentorSessions];
+
+      // Filter by role if specified
+      if (userRole === 'mentee') {
+        allSessions = allSessions.filter(session => session.student_id === userId);
+      } else if (userRole === 'mentor') {
+        allSessions = allSessions.filter(session => session.mentor_id === userId);
+      }
+
+      return allSessions.sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    } catch (error) {
+      console.error('Error fetching sessions by user:', error);
+      throw error;
+    }
+  }
+
+  static async getPendingSessions(): Promise<PairProgrammingSession[]> {
+    try {
+      return await this.getWhere<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        'status',
+        'in',
+        ['pending', 'assigned']
+      );
+    } catch (error) {
+      console.error('Error fetching pending sessions:', error);
+      throw error;
+    }
+  }
+
+  static async getOpenRequests(): Promise<PairProgrammingSession[]> {
+    try {
+      return await this.getWhere<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        'mentor_id',
+        '==',
+        null
+      );
+    } catch (error) {
+      console.error('Error fetching open requests:', error);
+      throw error;
+    }
+  }
+
+  static async assignMentorToSession(sessionId: string, mentorId: string): Promise<void> {
+    try {
+      await this.updateSession(sessionId, {
+        mentor_id: mentorId,
+        status: 'assigned',
+        assigned_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error assigning mentor to session:', error);
+      throw error;
+    }
+  }
+
+  static async startSession(sessionId: string): Promise<void> {
+    try {
+      await this.updateSession(sessionId, {
+        status: 'in_progress',
+        started_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error starting session:', error);
+      throw error;
+    }
+  }
+
+  static async completeSession(sessionId: string): Promise<void> {
+    try {
+      await this.updateSession(sessionId, {
+        status: 'completed',
+        completed_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error completing session:', error);
+      throw error;
+    }
+  }
+
+  static async cancelSession(sessionId: string, reason?: string): Promise<void> {
+    try {
+      await this.updateSession(sessionId, {
+        status: 'cancelled',
+        cancelled_at: new Date(),
+        cancel_reason: reason
+      });
+    } catch (error) {
+      console.error('Error cancelling session:', error);
+      throw error;
+    }
+  }
+
+  // Goals Management
+  static async setUserGoal(goalData: Omit<PairProgrammingGoal, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      // First, deactivate any existing active goal for this user
+      await this.updateWhere<PairProgrammingGoal>(
+        COLLECTIONS.PAIR_PROGRAMMING_GOALS,
+        [{ field: 'user_id', operator: '==', value: goalData.user_id }],
+        { is_active: false }
+      );
+
+      return await this.create<PairProgrammingGoal>(COLLECTIONS.PAIR_PROGRAMMING_GOALS, {
+        ...goalData,
+        is_active: true
+      });
+    } catch (error) {
+      console.error('Error setting user goal:', error);
+      throw error;
+    }
+  }
+
+  static async getUserGoal(userId: string): Promise<PairProgrammingGoal | null> {
+    try {
+      const goals = await this.getWhere<PairProgrammingGoal>(
+        COLLECTIONS.PAIR_PROGRAMMING_GOALS,
+        'user_id',
+        '==',
+        userId
+      );
+      return goals.find(goal => goal.is_active) || null;
+    } catch (error) {
+      console.error('Error fetching user goal:', error);
+      throw error;
+    }
+  }
+
+  // Feedback Management
+  static async submitMentorFeedback(feedbackData: Omit<MentorFeedback, 'id'>): Promise<string> {
+    try {
+      const feedbackId = await this.create<MentorFeedback>(COLLECTIONS.MENTOR_FEEDBACK, {
+        ...feedbackData,
+        submitted_at: new Date()
+      });
+
+      // Check if both feedbacks are submitted to complete the session
+      await this.checkAndCompleteSession(feedbackData.session_id);
+
+      return feedbackId;
+    } catch (error) {
+      console.error('Error submitting mentor feedback:', error);
+      throw error;
+    }
+  }
+
+  static async submitMenteeFeedback(feedbackData: Omit<MenteeFeedback, 'id'>): Promise<string> {
+    try {
+      const feedbackId = await this.create<MenteeFeedback>(COLLECTIONS.MENTEE_FEEDBACK, {
+        ...feedbackData,
+        submitted_at: new Date()
+      });
+
+      // Check if both feedbacks are submitted to complete the session
+      await this.checkAndCompleteSession(feedbackData.session_id);
+
+      return feedbackId;
+    } catch (error) {
+      console.error('Error submitting mentee feedback:', error);
+      throw error;
+    }
+  }
+
+  static async getSessionFeedback(sessionId: string): Promise<{
+    mentorFeedback?: MentorFeedback;
+    menteeFeedback?: MenteeFeedback;
+  }> {
+    try {
+      const [mentorFeedback] = await this.getWhere<MentorFeedback>(
+        COLLECTIONS.MENTOR_FEEDBACK,
+        'session_id',
+        '==',
+        sessionId
+      );
+
+      const [menteeFeedback] = await this.getWhere<MenteeFeedback>(
+        COLLECTIONS.MENTEE_FEEDBACK,
+        'session_id',
+        '==',
+        sessionId
+      );
+
+      return { mentorFeedback, menteeFeedback };
+    } catch (error) {
+      console.error('Error fetching session feedback:', error);
+      throw error;
+    }
+  }
+
+  private static async checkAndCompleteSession(sessionId: string): Promise<void> {
+    try {
+      const { mentorFeedback, menteeFeedback } = await this.getSessionFeedback(sessionId);
+
+      if (mentorFeedback && menteeFeedback) {
+        // Both feedbacks submitted, mark session as completed
+        await this.create<SessionCompletion>(COLLECTIONS.SESSION_COMPLETIONS, {
+          session_id: sessionId,
+          mentor_feedback_id: mentorFeedback.id,
+          mentee_feedback_id: menteeFeedback.id,
+          is_completed: true,
+          completed_at: new Date()
+        });
+
+        await this.completeSession(sessionId);
+      }
+    } catch (error) {
+      console.error('Error checking session completion:', error);
+      throw error;
+    }
+  }
+
+  // Analytics and Statistics
+  static async getUserStats(userId: string, userRole: 'mentee' | 'mentor'): Promise<PairProgrammingStats> {
+    try {
+      const sessions = await this.getSessionsByUser(userId, userRole);
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const sessionsThisWeek = sessions.filter(s => new Date(s.created_at) >= weekAgo);
+
+      return {
+        total_sessions_all_time: sessions.length,
+        sessions_last_7_days: sessionsThisWeek.length,
+        sessions_this_week: sessionsThisWeek.length,
+        expected_sessions_this_week: 0, // Will be calculated based on goals
+        pending_sessions: sessions.filter(s => ['pending', 'assigned'].includes(s.status)).length,
+        overdue_sessions: 0, // Will be calculated based on scheduling
+        mentees_with_overdue_sessions: 0,
+        average_sessions_per_mentee: userRole === 'mentor' ? 0 : sessions.length,
+        average_sessions_per_mentor: userRole === 'mentee' ? 0 : sessions.length
+      };
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+      throw error;
+    }
+  }
+
+  // Auto-sorting for pending sessions
+  static async getSortedPendingSessions(): Promise<PairProgrammingSession[]> {
+    try {
+      const pendingSessions = await this.getPendingSessions();
+
+      // Sort by priority and days since last session
+      return pendingSessions.sort((a, b) => {
+        // First sort by priority
+        const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
+        const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+
+        // Then by days since creation (oldest first)
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+    } catch (error) {
+      console.error('Error fetching sorted pending sessions:', error);
+      throw error;
+    }
+  }
+
+  // Create a new session request
+  static async createSessionRequest(requestData: Omit<PairProgrammingRequest, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      const sessionData: Omit<PairProgrammingSession, 'id'> = {
+        student_id: requestData.student_id,
+        mentor_id: undefined,
+        topic: requestData.topic,
+        description: requestData.description,
+        status: 'pending',
+        session_type: 'open_request',
+        priority: requestData.priority,
+        scheduled_date: undefined,
+        scheduled_time: undefined,
+        duration_minutes: requestData.duration_minutes,
+        meeting_link: undefined,
+        created_at: new Date(),
+        assigned_at: undefined,
+        started_at: undefined,
+        completed_at: undefined,
+        cancelled_at: undefined,
+        cancel_reason: undefined,
+        updated_at: new Date()
+      };
+
+      // Remove undefined fields before saving to Firestore
+      const cleanSessionData = Object.fromEntries(
+        Object.entries(sessionData).filter(([_, value]) => value !== undefined)
+      );
+
+      const sessionId = await this.create<PairProgrammingSession>(COLLECTIONS.PAIR_PROGRAMMING_SESSIONS, cleanSessionData as Omit<PairProgrammingSession, 'id'>);
+
+      // Try to auto-schedule the session
+      try {
+        const student = await UserService.getUserById(requestData.student_id);
+        if (student?.campus) {
+          const autoScheduled = await PairProgrammingScheduler.autoScheduleSession(
+            sessionId,
+            student.campus,
+            requestData.priority
+          );
+
+          if (autoScheduled) {
+            console.log(`Session ${sessionId} auto-scheduled successfully`);
+          } else {
+            console.log(`Session ${sessionId} could not be auto-scheduled, remains pending`);
+          }
+        }
+      } catch (scheduleError) {
+        console.error('Error during auto-scheduling:', scheduleError);
+        // Continue without failing the session creation
+      }
+
+      return sessionId;
+    } catch (error) {
+      console.error('Error creating session request:', error);
+      throw error;
+    }
+  }
+}
+
+// Enhanced Leave Service
+export class EnhancedLeaveService extends FirestoreService {
+
+  static async createLeaveRequest(leaveData: Omit<LeaveRequest, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      const leaveId = await this.create<LeaveRequest>(COLLECTIONS.LEAVE_REQUESTS, {
+        ...leaveData,
+        status: leaveData.status || 'pending'
+      });
+
+      // Handle session reassignment if needed
+      if (leaveData.status === 'approved') {
+        const fullLeaveData = await this.getById<LeaveRequest>(COLLECTIONS.LEAVE_REQUESTS, leaveId);
+        if (fullLeaveData) {
+          await this.handleLeaveImpact(leaveId, fullLeaveData);
+        }
+      }
+
+      return leaveId;
+    } catch (error) {
+      console.error('Error creating leave request:', error);
+      throw error;
+    }
+  }
+
+  static async getLeaveById(leaveId: string): Promise<LeaveRequest | null> {
+    try {
+      return await this.getById<LeaveRequest>(COLLECTIONS.LEAVE_REQUESTS, leaveId);
+    } catch (error) {
+      console.error('Error fetching leave by ID:', error);
+      throw error;
+    }
+  }
+
+  static async getUserLeaves(userId: string): Promise<LeaveRequest[]> {
+    try {
+      return await this.getWhere<LeaveRequest>(
+        COLLECTIONS.LEAVE_REQUESTS,
+        'user_id',
+        '==',
+        userId
+      );
+    } catch (error) {
+      console.error('Error fetching user leaves:', error);
+      throw error;
+    }
+  }
+
+  static async getActiveLeaves(): Promise<LeaveRequest[]> {
+    try {
+      const now = new Date();
+      return await this.getWhereCompound<LeaveRequest>(
+        COLLECTIONS.LEAVE_REQUESTS,
+        [
+          { field: 'status', operator: '==', value: 'approved' },
+          { field: 'start_date', operator: '<=', value: now },
+          { field: 'end_date', operator: '>=', value: now }
+        ]
+      );
+    } catch (error) {
+      console.error('Error fetching active leaves:', error);
+      throw error;
+    }
+  }
+
+  static async updateLeaveStatus(leaveId: string, status: LeaveRequest['status'], approvedBy?: string): Promise<void> {
+    try {
+      const updates: Partial<LeaveRequest> = {
+        status,
+        updated_at: new Date()
+      };
+
+      if (approvedBy) {
+        updates.approved_by = approvedBy;
+        updates.approved_at = new Date();
+      }
+
+      await this.update<LeaveRequest>(COLLECTIONS.LEAVE_REQUESTS, leaveId, updates);
+
+      // Handle session reassignment if approved
+      if (status === 'approved') {
+        const leave = await this.getLeaveById(leaveId);
+        if (leave) {
+          await this.handleLeaveImpact(leaveId, leave);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating leave status:', error);
+      throw error;
+    }
+  }
+
+  private static async handleLeaveImpact(leaveId: string, leave: LeaveRequest): Promise<void> {
+    try {
+      // Find overlapping sessions
+      const overlappingSessions = await this.getOverlappingSessions(leave);
+
+      if (overlappingSessions.length > 0) {
+        // Create leave impact record
+        await this.create<LeaveImpact>(COLLECTIONS.LEAVE_IMPACTS, {
+          leave_id: leaveId,
+          affected_sessions: overlappingSessions.map(s => s.id),
+          reassignment_status: 'pending'
+        });
+
+        // TODO: Implement session reassignment logic
+        // This would involve finding available mentors and reassigning sessions
+      }
+    } catch (error) {
+      console.error('Error handling leave impact:', error);
+      throw error;
+    }
+  }
+
+  private static async getOverlappingSessions(leave: LeaveRequest): Promise<PairProgrammingSession[]> {
+    try {
+      // Get sessions that overlap with the leave period
+      const sessions = await FirestoreService.getWhereCompound<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        [
+          { field: 'mentor_id', operator: '==', value: leave.user_id },
+          { field: 'status', operator: 'in', value: ['scheduled', 'assigned'] },
+          { field: 'scheduled_date', operator: '>=', value: leave.start_date },
+          { field: 'scheduled_date', operator: '<=', value: leave.end_date }
+        ]
+      );
+
+      return sessions;
+    } catch (error) {
+      console.error('Error finding overlapping sessions:', error);
+      throw error;
+    }
+  }
+
+  static async getLeavesToday(): Promise<{ mentors_on_leave: number; mentees_on_leave: number; leave_details: LeaveRequest[] }> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Fetch all approved leave requests and filter client-side to avoid compound query
+      const allApprovedLeaves = await this.getWhere<LeaveRequest>(
+        COLLECTIONS.LEAVE_REQUESTS,
+        'status',
+        '==',
+        'approved'
+      );
+
+      // Filter client-side for date range
+      const activeLeaves = allApprovedLeaves.filter(leave => {
+        const startDate = leave.start_date instanceof Date ? leave.start_date : new Date(leave.start_date);
+        const endDate = leave.end_date instanceof Date ? leave.end_date : new Date(leave.end_date);
+        return startDate <= tomorrow && endDate >= today;
+      });
+
+      const mentorsOnLeave = activeLeaves.filter(leave => {
+        // TODO: Check if user is a mentor
+        return true; // Placeholder
+      }).length;
+
+      const menteesOnLeave = activeLeaves.filter(leave => {
+        // TODO: Check if user is a mentee
+        return true; // Placeholder
+      }).length;
+
+      return {
+        mentors_on_leave: mentorsOnLeave,
+        mentees_on_leave: menteesOnLeave,
+        leave_details: activeLeaves
+      };
+    } catch (error) {
+      console.error('Error fetching leaves today:', error);
+      throw error;
+    }
+  }
+}
+
+// Enhanced Notification Service
+export class EnhancedNotificationService extends FirestoreService {
+
+  static async createNotification(notificationData: Omit<Notification, 'id' | 'created_at' | 'updated_at' | 'is_read'>): Promise<string> {
+    try {
+      return await this.create<Notification>(COLLECTIONS.NOTIFICATIONS, {
+        ...notificationData,
+        is_read: false
+      });
+    } catch (error) {
+      console.error('Error creating notification:', error);
+      throw error;
+    }
+  }
+
+  static async getUserNotifications(userId: string, unreadOnly = false): Promise<Notification[]> {
+    try {
+      let conditions: Array<{ field: string; operator: any; value: any }> = [
+        { field: 'user_id', operator: '==', value: userId }
+      ];
+
+      if (unreadOnly) {
+        conditions.push({ field: 'is_read', operator: '==', value: false });
+      }
+
+      return await this.getWhereCompound<Notification>(
+        COLLECTIONS.NOTIFICATIONS,
+        conditions,
+        'created_at',
+        'desc'
+      );
+    } catch (error) {
+      console.error('Error fetching user notifications:', error);
+      throw error;
+    }
+  }
+
+  static async markAsRead(notificationId: string): Promise<void> {
+    try {
+      await this.update<Notification>(COLLECTIONS.NOTIFICATIONS, notificationId, {
+        is_read: true,
+        read_at: new Date()
+      });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  static async getReminderSettings(userId: string): Promise<ReminderSettings | null> {
+    try {
+      const [settings] = await this.getWhere<ReminderSettings>(
+        COLLECTIONS.REMINDER_SETTINGS,
+        'user_id',
+        '==',
+        userId
+      );
+      return settings || null;
+    } catch (error) {
+      console.error('Error fetching reminder settings:', error);
+      throw error;
+    }
+  }
+
+  static async updateReminderSettings(settings: Omit<ReminderSettings, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+    try {
+      // Delete existing settings
+      await this.deleteWhere(
+        COLLECTIONS.REMINDER_SETTINGS,
+        [{ field: 'user_id', operator: '==', value: settings.user_id }]
+      );
+
+      return await this.create<ReminderSettings>(COLLECTIONS.REMINDER_SETTINGS, settings);
+    } catch (error) {
+      console.error('Error updating reminder settings:', error);
+      throw error;
+    }
+  }
+
+  // Auto-generate notifications
+  static async generateSessionReminders(): Promise<void> {
+    try {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const upcomingSessions = await FirestoreService.getWhere<PairProgrammingSession>(
+        COLLECTIONS.PAIR_PROGRAMMING_SESSIONS,
+        'scheduled_date',
+        '==',
+        tomorrow
+      );
+
+      for (const session of upcomingSessions) {
+        // Notify mentor
+        if (session.mentor_id) {
+          await this.createNotification({
+            user_id: session.mentor_id,
+            type: 'session_reminder',
+            title: 'Upcoming Pair Programming Session',
+            message: `You have a pair programming session tomorrow at ${session.scheduled_time} with ${session.student_id}`,
+            related_session_id: session.id
+          });
+        }
+
+        // Notify mentee
+        await this.createNotification({
+          user_id: session.student_id,
+          type: 'session_reminder',
+          title: 'Upcoming Pair Programming Session',
+          message: `You have a pair programming session tomorrow at ${session.scheduled_time}`,
+          related_session_id: session.id
+        });
+      }
+    } catch (error) {
+      console.error('Error generating session reminders:', error);
+      throw error;
+    }
+  }
+
+  static async generateWelcomeBackNotifications(): Promise<void> {
+    try {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      // Find leaves that ended yesterday
+      const endedLeaves = await FirestoreService.getWhere<LeaveRequest>(
+        COLLECTIONS.LEAVE_REQUESTS,
+        'end_date',
+        '==',
+        yesterday
+      );
+
+      for (const leave of endedLeaves) {
+        await this.createNotification({
+          user_id: leave.user_id,
+          type: 'welcome_back',
+          title: 'Welcome Back!',
+          message: 'Your leave period has ended. Welcome back to the campus!',
+          related_leave_id: leave.id
+        });
+      }
+    } catch (error) {
+      console.error('Error generating welcome back notifications:', error);
       throw error;
     }
   }

@@ -68,16 +68,14 @@ export class DataSeedingService {
             
             const phaseData = {
               name,
-              order: order,
-              created_at: new Date()
+              order: order
             };
             const phaseId = await PhaseService.createPhase(phaseData);
             console.log(`Created phase: ${name}`);
             for (const topicData of arr) {
               await TopicService.createTopic({
                 ...topicData,
-                phase_id: phaseId,
-                created_at: new Date()
+                phase_id: phaseId
               });
               console.log(`Created topic: ${topicData.name} for phase: ${name}`);
             }
