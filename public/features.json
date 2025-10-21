@@ -1,8 +1,17 @@
 {
-  "generatedAt": "2025-10-21T03:51:49.440Z",
+  "generatedAt": "2025-10-21T08:06:53.119Z",
   "version": "0.1.0",
   "features": {
     "all": [
+      {
+        "id": "feature-bd86cdc9",
+        "title": "Phase 1 - Auto-select assigned mentor in MenteeSlotBooking",
+        "description": "Phase 1 - Auto-select assigned mentor in MenteeSlotBooking",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "bd86cdc96ad85dd09424ace523984fd64970eb69",
+        "author": "Mubin"
+      },
       {
         "id": "feature-19f69f05",
         "title": "Add admin journey viewer with campus filtering and learner dashboard button",
@@ -78,6 +87,15 @@
       }
     ],
     "released": [
+      {
+        "id": "feature-bd86cdc9",
+        "title": "Phase 1 - Auto-select assigned mentor in MenteeSlotBooking",
+        "description": "Phase 1 - Auto-select assigned mentor in MenteeSlotBooking",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "bd86cdc96ad85dd09424ace523984fd64970eb69",
+        "author": "Mubin"
+      },
       {
         "id": "feature-19f69f05",
         "title": "Add admin journey viewer with campus filtering and learner dashboard button",

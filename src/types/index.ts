@@ -677,3 +677,30 @@ export interface AvailableSlot {
   endTime: Date;
   duration: number; // in minutes
 }
+
+// ===== ACADEMIC ASSOCIATE TYPES =====
+
+// Academic Associate Assignment (admin assigns students to an AA)
+export interface AcademicAssociateAssignment {
+  id: string;
+  academic_associate_id: string;
+  student_ids: string[];
+  campus: string;
+  house?: string;
+  phase?: string;
+  created_at: Date;
+  updated_at: Date;
+  created_by: string;
+  notes?: string;
+}
+
+// Student to AA Mapping (denormalized for quick lookup)
+export interface StudentAAMapping {
+  student_id: string;
+  academic_associate_id: string;
+  campus: string;
+  house?: string;
+  phase?: string;
+  assigned_at: Date;
+  assigned_by: string;
+}

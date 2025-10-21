@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Clock, AlertCircle } from 'lucide-react';
-import { CampusSchedule } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, Save, X, Clock, AlertCircle, Users, Loader } from 'lucide-react';
+import { CampusSchedule, AcademicAssociateAssignment } from '../../types';
+import { AcademicAssociateService } from '../../services/academicAssociateService';
+import AAAssignmentForm from './AAAssignmentForm';
 
 const CampusScheduleAdmin: React.FC = () => {
-  // Simple in-memory storage for demo - in production would use Firestore
+  // Campus Schedule State
   const [campuses, setCampuses] = useState<CampusSchedule[]>([
     {
       id: 'cs-1',
@@ -23,7 +25,91 @@ const CampusScheduleAdmin: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<CampusSchedule>>({});
 
+  // Academic Associates State
+  const [selectedCampus, setSelectedCampus] = useState<string>('Dharamshala');
+  const [aaAssignments, setAAAssignments] = useState<AcademicAssociateAssignment[]>([]);
+  const [aaSummary, setAASummary] = useState<any[]>([]);
+  const [loadingAA, setLoadingAA] = useState(false);
+  const [showAAForm, setShowAAForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'schedules' | 'academicAssociates'>('schedules');
+
   const dayOptions = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+  // Load Academic Associates assignments
+  useEffect(() => {
+    if (activeTab === 'academicAssociates') {
+      (async () => {
+        try {
+          setLoadingAA(true);
+          const assignments = await AcademicAssociateService.getAssignments({
+            campus: selectedCampus,
+          });
+          setAAAssignments(assignments);
+
+          // Get summary
+          const summary = await AcademicAssociateService.getAcademicAssociatesSummary(
+            selectedCampus
+          );
+          setAASummary(summary);
+        } catch (error) {
+          console.error('Error loading AA assignments:', error);
+        } finally {
+          setLoadingAA(false);
+        }
+      })();
+    }
+  }, [activeTab, selectedCampus]);
+
+  const loadAAAssignments = async () => {
+    try {
+      setLoadingAA(true);
+      const assignments = await AcademicAssociateService.getAssignments({
+        campus: selectedCampus,
+      });
+      setAAAssignments(assignments);
+
+      // Get summary
+      const summary = await AcademicAssociateService.getAcademicAssociatesSummary(
+        selectedCampus
+      );
+      setAASummary(summary);
+    } catch (error) {
+      console.error('Error loading AA assignments:', error);
+    } finally {
+      setLoadingAA(false);
+    }
+  };
+
+  const handleSaveAAAssignment = async (aaId: string, studentIds: string[]) => {
+    try {
+      // Get current user ID (from auth context - using placeholder)
+      const userId = 'admin-user-id';
+
+      await AcademicAssociateService.createAssignment(
+        aaId,
+        studentIds,
+        selectedCampus,
+        userId
+      );
+
+      // Refresh the list
+      await loadAAAssignments();
+    } catch (error) {
+      console.error('Error saving AA assignment:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteAAAssignment = async (assignmentId: string) => {
+    if (window.confirm('Are you sure you want to delete this assignment?')) {
+      try {
+        await AcademicAssociateService.deleteAssignment(assignmentId);
+        await loadAAAssignments();
+      } catch (error) {
+        console.error('Error deleting AA assignment:', error);
+      }
+    }
+  };
 
   const handleAddCampus = () => {
     setFormData({
@@ -235,19 +321,51 @@ const CampusScheduleAdmin: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Campus Schedules</h1>
-          <p className="text-gray-600 mt-1">Manage working hours, breaks, and session allocation</p>
+          <h1 className="text-3xl font-bold text-gray-900">Campus Administration</h1>
+          <p className="text-gray-600 mt-1">Manage schedules and academic associate assignments</p>
         </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-4 border-b border-gray-200">
         <button
-          onClick={handleAddCampus}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          onClick={() => setActiveTab('schedules')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'schedules'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
         >
-          <Plus className="h-5 w-5" />
-          Add Campus
+          <Clock className="h-5 w-5 inline mr-2" />
+          Campus Schedules
+        </button>
+        <button
+          onClick={() => setActiveTab('academicAssociates')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'academicAssociates'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Users className="h-5 w-5 inline mr-2" />
+          Academic Associates
         </button>
       </div>
 
-      {/* Campus List */}
+      {/* Campus Schedules Tab */}
+      {activeTab === 'schedules' && (
+        <>
+          <div className="flex justify-end">
+            <button
+              onClick={handleAddCampus}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+            >
+              <Plus className="h-5 w-5" />
+              Add Campus Schedule
+            </button>
+          </div>
+
+          {/* Campus List */}
       <div className="grid grid-cols-1 gap-4">
         {campuses.map((campus) => (
           <div key={campus.id} className="bg-white rounded-lg shadow p-5 hover:shadow-md transition">
@@ -313,7 +431,143 @@ const CampusScheduleAdmin: React.FC = () => {
             </button>
           </div>
         )}
-      </div>
+        </div>
+        </>
+      )}
+
+      {/* Academic Associates Tab */}
+      {activeTab === 'academicAssociates' && (
+        <div className="space-y-6">
+          {/* Campus Selector */}
+          <div className="flex gap-4 items-center">
+            <div className="flex-1 max-w-xs">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Campus
+              </label>
+              <select
+                value={selectedCampus}
+                onChange={(e) => setSelectedCampus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {campuses.map((campus) => (
+                  <option key={campus.id} value={campus.campus}>
+                    {campus.campus}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={() => setShowAAForm(true)}
+              className="mt-6 flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+            >
+              <Plus className="h-5 w-5" />
+              New Assignment
+            </button>
+          </div>
+
+          {/* Loading State */}
+          {loadingAA && (
+            <div className="text-center py-8">
+              <Loader className="h-8 w-8 animate-spin text-blue-600 mx-auto" />
+              <p className="text-gray-600 mt-2">Loading assignments...</p>
+            </div>
+          )}
+
+          {/* Assignments Table */}
+          {!loadingAA && (
+            <>
+              {aaAssignments.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-lg">
+                  <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-4">
+                    No assignments yet for {selectedCampus}
+                  </p>
+                  <button
+                    onClick={() => setShowAAForm(true)}
+                    className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create First Assignment
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                          Academic Associate
+                        </th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                          Students
+                        </th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                          House
+                        </th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                          Phase
+                        </th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                          Created
+                        </th>
+                        <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {aaAssignments.map((assignment) => {
+                        const aaSummaryItem = aaSummary.find(
+                          (s) => s.academic_associate_id === assignment.academic_associate_id
+                        );
+                        return (
+                          <tr key={assignment.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                              {aaSummaryItem?.name || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {assignment.student_ids?.length || 0} students
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {assignment.house || '-'}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {assignment.phase || '-'}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {new Date(assignment.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 text-right text-sm">
+                              <button
+                                onClick={() => handleDeleteAAAssignment(assignment.id)}
+                                className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* AA Assignment Form Modal */}
+      {showAAForm && (
+        <AAAssignmentForm
+          campus={selectedCampus}
+          onSave={handleSaveAAAssignment}
+          onClose={() => setShowAAForm(false)}
+        />
+      )}
     </div>
   );
 };
