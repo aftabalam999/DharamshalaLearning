@@ -1,5 +1,6 @@
 import { FirestoreService, COLLECTIONS, UserService } from './firestore';
 import { PairProgrammingScheduler } from './pairProgrammingScheduler';
+import { RollingQueueService } from './rollingQueueService';
 import {
   Phase,
   Topic,
@@ -1609,11 +1610,40 @@ export class EnhancedPairProgrammingService extends FirestoreService {
 
   static async assignMentorToSession(sessionId: string, mentorId: string): Promise<void> {
     try {
+      // Get session to extract needed info (student_id, campus)
+      const session = await this.getSessionById(sessionId);
+      if (!session) {
+        throw new Error(`Session ${sessionId} not found`);
+      }
+
+      // Get the AA (mentor) user to get campus
+      const mentorUser = await UserService.getUserById(mentorId);
+      if (!mentorUser) {
+        throw new Error(`Mentor ${mentorId} not found`);
+      }
+
+      // Update session with mentor assignment
       await this.updateSession(sessionId, {
         mentor_id: mentorId,
         status: 'assigned',
         assigned_at: new Date()
       });
+
+      // Create queue entry for this session
+      // This hooks the rolling queue system to activate when session is assigned
+      try {
+        await RollingQueueService.createQueueEntry(
+          sessionId,
+          session.student_id,
+          mentorId,
+          mentorUser.campus || 'default',
+          'medium' // default priority
+        );
+        console.log(`[Queue] Created queue entry for session ${sessionId}, mentor ${mentorId}`);
+      } catch (queueError) {
+        // Log queue creation error but don't fail the mentor assignment
+        console.error('[Queue] Error creating queue entry:', queueError);
+      }
     } catch (error) {
       console.error('Error assigning mentor to session:', error);
       throw error;
@@ -1634,10 +1664,29 @@ export class EnhancedPairProgrammingService extends FirestoreService {
 
   static async completeSession(sessionId: string): Promise<void> {
     try {
+      // Get session to know which AA (mentor) to advance queue for
+      const session = await this.getSessionById(sessionId);
+      if (!session) {
+        throw new Error(`Session ${sessionId} not found`);
+      }
+
+      // Update session status to completed
       await this.updateSession(sessionId, {
         status: 'completed',
         completed_at: new Date()
       });
+
+      // Advance the queue for this AA (marks current complete, moves next to in_progress)
+      // This hooks the rolling queue system to process the next entry when session completes
+      if (session.mentor_id) {
+        try {
+          await RollingQueueService.advanceQueue(sessionId);
+          console.log(`[Queue] Advanced queue for session ${sessionId}, mentor ${session.mentor_id}`);
+        } catch (queueError) {
+          // Log queue advancement error but don't fail session completion
+          console.error('[Queue] Error advancing queue:', queueError);
+        }
+      }
     } catch (error) {
       console.error('Error completing session:', error);
       throw error;
@@ -1646,11 +1695,36 @@ export class EnhancedPairProgrammingService extends FirestoreService {
 
   static async cancelSession(sessionId: string, reason?: string): Promise<void> {
     try {
+      // Get session to find queue entry if it exists
+      const session = await this.getSessionById(sessionId);
+      if (!session) {
+        throw new Error(`Session ${sessionId} not found`);
+      }
+
+      // Update session status to cancelled
       await this.updateSession(sessionId, {
         status: 'cancelled',
         cancelled_at: new Date(),
         cancel_reason: reason
       });
+
+      // Remove from queue if session had a queue entry
+      // This hooks the rolling queue to clean up cancelled sessions
+      if (session.mentor_id) {
+        try {
+          // Find and remove the queue entry for this session
+          const aaQueues = await RollingQueueService.getQueueForAA(session.mentor_id);
+          const queueEntry = aaQueues.find((entry: any) => entry.session_id === sessionId);
+          
+          if (queueEntry) {
+            await RollingQueueService.removeFromQueue(queueEntry.id);
+            console.log(`[Queue] Removed cancelled session ${sessionId} from queue`);
+          }
+        } catch (queueError) {
+          // Log queue removal error but don't fail session cancellation
+          console.error('[Queue] Error removing from queue:', queueError);
+        }
+      }
     } catch (error) {
       console.error('Error cancelling session:', error);
       throw error;
