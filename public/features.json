@@ -1,8 +1,26 @@
 {
-  "generatedAt": "2025-10-21T10:01:35.916Z",
+  "generatedAt": "2025-10-21T10:14:59.537Z",
   "version": "0.1.0",
   "features": {
     "all": [
+      {
+        "id": "feature-82d9708a",
+        "title": "Phase 4 Complete - Rolling Queue System Fully Implemented",
+        "description": "Phase 4 Complete - Rolling Queue System Fully Implemented",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "82d9708a790b24a5a64454a551258136f6954da3",
+        "author": "Mubin"
+      },
+      {
+        "id": "feature-8c408c51",
+        "title": "Implement Phase 4, Step 4 - Queue UI Components",
+        "description": "Implement Phase 4, Step 4 - Queue UI Components",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "8c408c518971158f92cba81af9ffdf34c5ec6714",
+        "author": "Mubin"
+      },
       {
         "id": "feature-c5a79394",
         "title": "Implement Phase 4, Step 3 - Queue Integration",
@@ -114,6 +132,24 @@
       }
     ],
     "released": [
+      {
+        "id": "feature-82d9708a",
+        "title": "Phase 4 Complete - Rolling Queue System Fully Implemented",
+        "description": "Phase 4 Complete - Rolling Queue System Fully Implemented",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "82d9708a790b24a5a64454a551258136f6954da3",
+        "author": "Mubin"
+      },
+      {
+        "id": "feature-8c408c51",
+        "title": "Implement Phase 4, Step 4 - Queue UI Components",
+        "description": "Implement Phase 4, Step 4 - Queue UI Components",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "8c408c518971158f92cba81af9ffdf34c5ec6714",
+        "author": "Mubin"
+      },
       {
         "id": "feature-c5a79394",
         "title": "Implement Phase 4, Step 3 - Queue Integration",
