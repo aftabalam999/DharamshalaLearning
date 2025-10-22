@@ -1001,39 +1001,48 @@ export class MentorshipService extends FirestoreService {
    */
   static async getAllMentorsWithCapacity(): Promise<MentorWithCapacity[]> {
     try {
+      console.log('🔍 MentorshipService: Loading all mentors with capacity...');
       const { UserService } = await import('./firestore');
       
       // Get all users (anyone can be a mentor)
+      console.log('📋 MentorshipService: Fetching all users...');
       const allUsers = await UserService['getAll']<User>('users');
+      console.log(`✅ MentorshipService: Found ${allUsers.length} users`);
 
       // Get capacity for each user
       const mentorsWithCapacity: MentorWithCapacity[] = [];
       
       for (const user of allUsers) {
-        // All users are considered as mentors
-        // Get all students assigned to this user as mentor
-        const mentees = await UserService.getStudentsByMentor(user.id);
-        
-        // Determine max mentees: super mentors = unlimited (999), regular = max_mentees or default 2
-        const maxMentees = user.isSuperMentor 
-          ? 999 
-          : (user.max_mentees || 2);
-        const currentMentees = mentees.length;
-        const availableSlots = user.isSuperMentor ? 999 : Math.max(0, maxMentees - currentMentees);
-        
-        mentorsWithCapacity.push({
-          mentor: user,
-          current_mentees: currentMentees,
-          max_mentees: maxMentees,
-          available_slots: availableSlots,
-          mentee_names: mentees.map(m => m.name)
-        });
+        try {
+          // All users are considered as mentors
+          // Get all students assigned to this user as mentor
+          const mentees = await UserService.getStudentsByMentor(user.id);
+          
+          // Determine max mentees: super mentors = unlimited (999), regular = max_mentees or default 2
+          const maxMentees = user.isSuperMentor 
+            ? 999 
+            : (user.max_mentees || 2);
+          const currentMentees = mentees.length;
+          const availableSlots = user.isSuperMentor ? 999 : Math.max(0, maxMentees - currentMentees);
+          
+          mentorsWithCapacity.push({
+            mentor: user,
+            current_mentees: currentMentees,
+            max_mentees: maxMentees,
+            available_slots: availableSlots,
+            mentee_names: mentees.map(m => m.name)
+          });
+        } catch (userError) {
+          console.warn(`⚠️ MentorshipService: Error processing user ${user.id}:`, userError);
+          // Continue processing other users even if one fails
+        }
       }
 
+      console.log(`✅ MentorshipService: Processed ${mentorsWithCapacity.length} mentors with capacity`);
       return mentorsWithCapacity;
     } catch (error) {
       console.error('❌ MentorshipService: Error getting mentors with capacity:', error);
-      return [];
+      throw error; // Re-throw to let caller handle the error
     }
   }
 

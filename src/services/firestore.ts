@@ -341,7 +341,6 @@ export class UserService extends FirestoreService {
   static async getStudentsByMentor(mentorId: string): Promise<User[]> {
     const q = query(
       collection(db, COLLECTIONS.USERS),
-      where('mentor_id', '==', mentorId),
       where('mentor_id', '==', mentorId)
     );
     
