@@ -1,8 +1,17 @@
 {
-  "generatedAt": "2025-10-21T17:25:51.178Z",
+  "generatedAt": "2025-10-21T17:38:52.978Z",
   "version": "0.1.0",
   "features": {
     "all": [
+      {
+        "id": "feature-e7c1989a",
+        "title": "Add Past and Upcoming Sessions to My Sessions tab",
+        "description": "Add Past and Upcoming Sessions to My Sessions tab",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "e7c1989aa0585135b7437adf7b14236f4b7d27e8",
+        "author": "Mubin"
+      },
       {
         "id": "feature-aa453858",
         "title": "Phase 5 - Auto-requeue cancelled sessions",
@@ -141,6 +150,15 @@
       }
     ],
     "released": [
+      {
+        "id": "feature-e7c1989a",
+        "title": "Add Past and Upcoming Sessions to My Sessions tab",
+        "description": "Add Past and Upcoming Sessions to My Sessions tab",
+        "status": "released",
+        "dateAdded": "2025-10-21",
+        "commitHash": "e7c1989aa0585135b7437adf7b14236f4b7d27e8",
+        "author": "Mubin"
+      },
       {
         "id": "feature-aa453858",
         "title": "Phase 5 - Auto-requeue cancelled sessions",

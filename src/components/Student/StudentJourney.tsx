@@ -711,49 +711,9 @@ const StudentJourney: React.FC = () => {
           </div>
         </div>
 
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">Topic Details</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {phaseProgress.flatMap(phaseData =>
-              phaseData.topics.map((topicData) => (
-                <div
-                  key={topicData.topic.id}
-                  className={`rounded-lg p-4 border-2 transition-all duration-200 ${
-                    topicData.completed
-                      ? 'bg-green-50 border-green-200'
-                      : 'bg-white border-gray-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900 text-sm mb-1">
-                        {topicData.topic.name}
-                      </h4>
-                      <p className="text-xs text-gray-500">{topicData.phaseName}</p>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      topicData.completed ? 'bg-green-500' : 'bg-gray-300'
-                    }`}></div>
-                  </div>
-
-                  {topicData.completed && topicData.completionDate && (
-                    <div className="flex items-center text-xs text-green-600 mt-2">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      Completed {topicData.completionDate.toLocaleDateString()}
-                    </div>
-                  )}
-
-                  {!topicData.completed && (
-                    <div className="text-xs text-gray-400 mt-2">
-                      Not completed yet
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        {/* Topic Details section removed as per request */}
       </div>
     </div>
   );
-};export default StudentJourney;
+};
+export default StudentJourney;
