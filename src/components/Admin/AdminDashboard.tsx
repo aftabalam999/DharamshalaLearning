@@ -16,6 +16,7 @@ import AttendanceDashboard from './AttendanceDashboard';
 import MenteeReviewCategoriesAdmin from './MenteeReviewCategoriesAdmin';
 import CampusScheduleAdmin from './CampusScheduleAdmin';
 import HouseStatsAdmin from './HouseStatsAdmin';
+import AdminReviewCompliance from './AdminReviewCompliance';
 
 
 const AdminDashboard: React.FC = () => {
@@ -52,6 +53,7 @@ const AdminDashboard: React.FC = () => {
     ],
     reports: [
       { id: 'reports', label: 'Overview' },
+      { id: 'review-compliance', label: 'Review Compliance' },
       { id: 'journey-tracking', label: 'Journey Tracking' },
       { id: 'phase-timeline', label: 'Phase Timeline' },
       { id: 'attendance', label: 'Attendance Dashboard' },
@@ -185,6 +187,11 @@ const AdminDashboard: React.FC = () => {
                 Detailed analytics and student reports will be available here
               </p>
             </div>
+          </div>
+        )}
+        {mainTab === 'reports' && subTab === 'review-compliance' && (
+          <div className="p-6">
+            <AdminReviewCompliance />
           </div>
         )}
         {mainTab === 'reports' && subTab === 'journey-tracking' && (

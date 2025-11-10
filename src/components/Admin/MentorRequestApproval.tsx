@@ -54,17 +54,22 @@ const MentorRequestApproval: React.FC = () => {
       setError('');
       setSuccess('');
 
+      const role: 'admin' | 'super_mentor' | 'academic_associate' =
+        userData.role === 'admin' || userData.role === 'super_mentor' || userData.role === 'academic_associate'
+          ? (userData.role as any)
+          : 'admin';
+
       console.log('Approving request with data:', {
         requestId,
         adminId: userData.id,
-        role: (userData.role === 'admin' || userData.role === 'super_mentor') ? userData.role : 'admin',
+        role,
         hasNotes: !!adminNotes[requestId]
       });
 
       await MentorshipService.approveMentorRequest(
         requestId,
         userData.id,
-        (userData.role === 'admin' || userData.role === 'super_mentor') ? userData.role : 'admin',
+        role,
         adminNotes[requestId]
       );
 
@@ -90,9 +95,15 @@ const MentorRequestApproval: React.FC = () => {
       setError('');
       setSuccess('');
 
+      const role: 'admin' | 'super_mentor' | 'academic_associate' =
+        userData.role === 'admin' || userData.role === 'super_mentor' || userData.role === 'academic_associate'
+          ? (userData.role as any)
+          : 'admin';
+
       await MentorshipService.rejectMentorRequest(
         requestId,
         userData.id,
+        role,
         adminNotes[requestId]
       );
 

@@ -24,6 +24,12 @@ export interface User {
   updated_at: Date;
   role?: 'admin' | 'academic_associate' | 'super_mentor' | 'mentor';  // Role of the user
   gemini_api_key?: string; // Optional Gemini API key for AI feedback
+  discord_user_id?: string; // Discord user ID for notifications and tagging
+  notification_preferences?: {
+    in_app?: boolean;
+    discord?: boolean;
+    email?: boolean;
+  };
 }
 
 // Phase interface
@@ -109,6 +115,13 @@ export interface MenteeReview {
   week_start: Date;
   created_at: Date;
   updated_at: Date;
+  
+  // Enhanced fields for deadline enforcement
+  submission_deadline?: Date; // Monday at 23:59:59
+  submitted_on_time?: boolean; // Was it submitted by Monday?
+  days_overdue?: number; // How many days past deadline
+  is_mandatory?: boolean; // Is this review compulsory? (default: true)
+  exemption_reason?: string | null; // e.g., "Student on leave"
 }
 
 export interface MenteeReviewForm {
@@ -117,6 +130,40 @@ export interface MenteeReviewForm {
   academicEffort: number;
   campusContribution: number;
   behavioural: number;
+  notes: string;
+}
+
+// Mentor Review (Student reviews Mentor)
+export interface MentorReview {
+  id: string;
+  mentor_id: string;
+  student_id: string;
+  morning_exercise: number; // -2 to 2
+  communication: number; // -2 to 2
+  academic_effort: number; // -2 to 2
+  campus_contribution: number; // -2 to 2
+  behavioural: number; // -2 to 2
+  mentorship_level: number; // -2 to 2 (Additional scale for mentoring quality)
+  notes?: string;
+  week_start: Date;
+  created_at: Date;
+  updated_at: Date;
+  
+  // Enhanced fields for deadline enforcement
+  submission_deadline?: Date; // Monday at 23:59:59
+  submitted_on_time?: boolean; // Was it submitted by Monday?
+  days_overdue?: number; // How many days past deadline
+  is_mandatory?: boolean; // Is this review compulsory? (default: true)
+  exemption_reason?: string | null; // e.g., "Student on leave"
+}
+
+export interface MentorReviewForm {
+  morningExercise: number;
+  communication: number;
+  academicEffort: number;
+  campusContribution: number;
+  behavioural: number;
+  mentorshipLevel: number; // Additional field for rating mentor's mentorship quality
   notes: string;
 }
 

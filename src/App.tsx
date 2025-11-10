@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { DataCacheProvider } from './contexts/DataCacheContext';
+import { ClientReminderScheduler } from './services/clientReminderScheduler';
 
 // Common Components
 import ProtectedRoute from './components/Common/ProtectedRoute';
@@ -51,14 +53,27 @@ const NotFound = () => (
 );
 
 function App() {
+  // Initialize the client-side reminder scheduler
+  useEffect(() => {
+    console.log('[App] Initializing review reminder scheduler...');
+    const scheduler = ClientReminderScheduler.getInstance();
+    scheduler.start();
+    
+    return () => {
+      // Cleanup if needed
+      console.log('[App] App unmounting');
+    };
+  }, []);
+
   return (
     <Router>
       <AuthProvider>
-        <div className="App">
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+        <DataCacheProvider>
+          <div className="App">
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
             
             {/* Protected Routes */}
             <Route path="/" element={
@@ -222,7 +237,8 @@ function App() {
             {/* 404 Route */}
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </div>
+          </div>
+        </DataCacheProvider>
       </AuthProvider>
     </Router>
   );

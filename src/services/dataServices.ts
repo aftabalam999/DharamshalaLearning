@@ -15,6 +15,7 @@ import {
   MentorWithCapacity,
   User,
   MenteeReview,
+  MentorReview,
   PairProgrammingSession,
   PairProgrammingGoal,
   MentorFeedback,
@@ -251,6 +252,15 @@ export class GoalService extends FirestoreService {
     }
   }
 
+  /**
+   * Review a goal (approve or mark as reviewed)
+   * 
+   * Permissions:
+   * - Admin: Can review any goal
+   * - Academic Associate: Can review goals from assigned students
+   * - Super Mentor / Mentor: Can review goals from assigned mentees
+   * - Students: Cannot review goals (including their own)
+   */
   static async reviewGoal(
     id: string,
     reviewerId: string,
@@ -258,6 +268,26 @@ export class GoalService extends FirestoreService {
     mentorComment?: string
   ): Promise<void> {
     try {
+      const { canReviewGoal } = await import('./permissions');
+      const { UserService } = await import('./firestore');
+
+      // Get the goal and reviewer user
+      const goal = await this.getById<DailyGoal>(COLLECTIONS.DAILY_GOALS, id);
+      if (!goal) {
+        throw new Error('Goal not found');
+      }
+
+      const reviewer = await UserService.getUserById(reviewerId);
+      if (!reviewer) {
+        throw new Error('Reviewer not found');
+      }
+
+      // Check permissions
+      const hasPermission = await canReviewGoal(reviewer, goal);
+      if (!hasPermission) {
+        throw new Error('You do not have permission to review this goal');
+      }
+
       return await this.updateGoal(id, {
         status,
         reviewed_by: reviewerId,
@@ -363,6 +393,15 @@ export class ReflectionService extends FirestoreService {
     }
   }
 
+  /**
+   * Review a reflection (approve or mark as reviewed with notes)
+   * 
+   * Permissions:
+   * - Admin: Can review any reflection
+   * - Academic Associate: Can review reflections from assigned students
+   * - Super Mentor / Mentor: Can review reflections from assigned mentees
+   * - Students: Cannot review reflections (including their own)
+   */
   static async reviewReflection(
     id: string,
     reviewerId: string,
@@ -371,13 +410,32 @@ export class ReflectionService extends FirestoreService {
     mentorAssessment?: 'needs_improvement' | 'on_track' | 'exceeds_expectations'
   ): Promise<void> {
     try {
+      const { canReviewReflection } = await import('./permissions');
+      const { UserService } = await import('./firestore');
+
+      // Get the reflection and reviewer user
+      const reflection = await this.getById<DailyReflection>(COLLECTIONS.DAILY_REFLECTIONS, id);
+      if (!reflection) {
+        throw new Error('Reflection not found');
+      }
+
+      const reviewer = await UserService.getUserById(reviewerId);
+      if (!reviewer) {
+        throw new Error('Reviewer not found');
+      }
+
+      // Check permissions
+      const hasPermission = await canReviewReflection(reviewer, reflection);
+      if (!hasPermission) {
+        throw new Error('You do not have permission to review this reflection');
+      }
+
       const updateData: Partial<DailyReflection> = {
         status,
         reviewed_by: reviewerId,
         reviewed_at: new Date(),
         feedback_given_at: new Date()
       };
-
 
       // Only add mentor_notes if it is not undefined or null (Firestore doesn't allow undefined)
       if (typeof mentorNotes !== 'undefined' && mentorNotes !== null) {
@@ -1345,11 +1403,23 @@ export class MentorshipService extends FirestoreService {
 
   /**
    * Approve a mentor change request
+   * 
+   * Permissions:
+   * - Admin: Can approve any mentor change request (global scope)
+   * - Academic Associate: Can approve requests for students on their campus (campus-wide scope)
+   * - Super Mentor: Can approve requests for their assigned mentees
+   * - Regular Mentor: Cannot approve (must be academic associate or higher)
+   * - Students: Cannot approve
+   * 
+   * @param requestId - The ID of the mentor change request
+   * @param adminId - The ID of the user approving the request
+   * @param adminRole - The role of the approver (admin, academic_associate, or super_mentor)
+   * @param adminNotes - Optional notes from the approver
    */
   static async approveMentorRequest(
     requestId: string,
     adminId: string,
-    adminRole: 'admin' | 'super_mentor',
+    adminRole: 'admin' | 'super_mentor' | 'academic_associate',
     adminNotes?: string
   ): Promise<void> {
     try {
@@ -1381,6 +1451,15 @@ export class MentorshipService extends FirestoreService {
         if (!assignedMentees.includes(request.student_id)) {
           throw new Error('Super mentor can only approve requests for their assigned mentees');
         }
+      } else if (adminRole === 'academic_associate') {
+        const admin = await UserService.getUserById(adminId);
+        const student = await UserService.getUserById(request.student_id);
+        if (!admin?.campus || !student?.campus || admin.campus !== student.campus) {
+          throw new Error('Academic associate can only approve requests for students on their campus');
+        }
+      } else if (adminRole !== 'admin') {
+        // Fallback guard if an unexpected role reaches here
+        throw new Error('Only academic associate or higher can approve mentor change requests');
       }
 
       // Update the request (conditionally include admin_notes to avoid undefined)
@@ -1413,10 +1492,23 @@ export class MentorshipService extends FirestoreService {
 
   /**
    * Reject a mentor change request
+   * 
+   * Permissions:
+   * - Admin: Can reject any mentor change request (global scope)
+   * - Academic Associate: Can reject requests for students on their campus (campus-wide scope)
+   * - Super Mentor: Can reject requests for their assigned mentees
+   * - Regular Mentor: Cannot reject (must be academic associate or higher)
+   * - Students: Cannot reject
+   * 
+   * @param requestId - The ID of the mentor change request
+   * @param adminId - The ID of the user rejecting the request
+   * @param adminRole - The role of the rejector (admin, academic_associate, or super_mentor)
+   * @param adminNotes - Optional notes from the rejector
    */
   static async rejectMentorRequest(
     requestId: string,
     adminId: string,
+    adminRole: 'admin' | 'super_mentor' | 'academic_associate',
     adminNotes?: string
   ): Promise<void> {
     try {
@@ -1434,6 +1526,23 @@ export class MentorshipService extends FirestoreService {
 
       if (request.status !== 'pending') {
         throw new Error('Request is not pending');
+      }
+
+      // Enforce role-based rejection rules (same as approval)
+      if (adminRole === 'super_mentor') {
+        const assignedMentees = await UserService.getAssignedMentees(adminId);
+        if (!assignedMentees.includes(request.student_id)) {
+          throw new Error('Super mentor can only reject requests for their assigned mentees');
+        }
+      } else if (adminRole === 'academic_associate') {
+        // Academic associates can reject for any student on their campus
+        const admin = await UserService.getUserById(adminId);
+        const student = await UserService.getUserById(request.student_id);
+        if (!admin?.campus || !student?.campus || admin.campus !== student.campus) {
+          throw new Error('Academic associate can only reject requests for students on their campus');
+        }
+      } else if (adminRole !== 'admin') {
+        throw new Error('Only academic associate or higher can reject mentor change requests');
       }
 
       // Update the request (conditionally include admin_notes to avoid undefined)
@@ -1693,6 +1802,201 @@ export class MenteeReviewService extends FirestoreService {
       );
     } catch (error) {
       console.error('Error fetching weekly mentee reviews:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a review has already been submitted for a specific week
+   * Prevents duplicate weekly submissions
+   * 
+   * @param studentId - Student being reviewed
+   * @param mentorId - Mentor submitting the review
+   * @param weekStart - Monday of the week (use getCurrentWeekStart())
+   * @returns boolean - true if review already exists for this week
+   */
+  static async hasSubmittedThisWeek(
+    studentId: string,
+    mentorId: string,
+    weekStart: Date
+  ): Promise<boolean> {
+    try {
+      console.log('🔍 [MenteeReviewService] Checking for existing review:', {
+        studentId,
+        mentorId,
+        weekStart: weekStart.toISOString()
+      });
+
+      const reviews = await this.getWhereCompound<MenteeReview>(
+        COLLECTIONS.MENTEE_REVIEWS,
+        [
+          { field: 'student_id', operator: '==', value: studentId },
+          { field: 'mentor_id', operator: '==', value: mentorId },
+          { field: 'week_start', operator: '==', value: weekStart }
+        ]
+      );
+
+      console.log('🔍 [MenteeReviewService] Found existing reviews:', reviews.length);
+      return reviews.length > 0;
+    } catch (error) {
+      console.error('Error checking for existing mentee review:', error);
+      throw error;
+    }
+  }
+}
+
+// Mentor Review Service (Students review Mentors)
+export class MentorReviewService extends FirestoreService {
+  static async createReview(reviewData: Omit<MentorReview, 'id' | 'created_at' | 'updated_at'>): Promise<MentorReview> {
+    try {
+      console.log('💾 [MentorReviewService] Creating review with data:', reviewData);
+      
+      const docId = await this.create<MentorReview>(COLLECTIONS.MENTOR_REVIEWS, reviewData);
+      console.log('💾 [MentorReviewService] Review created with ID:', docId);
+      
+      const createdReview = await this.getById<MentorReview>(COLLECTIONS.MENTOR_REVIEWS, docId);
+      if (!createdReview) {
+        throw new Error('Failed to retrieve created review');
+      }
+      
+      return createdReview;
+    } catch (error) {
+      console.error('Error creating mentor review:', error);
+      throw error;
+    }
+  }
+
+  static async getReviewsByMentor(mentorId: string): Promise<MentorReview[]> {
+    try {
+      return await this.getWhere<MentorReview>(
+        COLLECTIONS.MENTOR_REVIEWS,
+        'mentor_id',
+        '==',
+        mentorId
+      );
+    } catch (error) {
+      console.error('Error fetching mentor reviews by mentor:', error);
+      throw error;
+    }
+  }
+
+  static async getReviewsByStudent(studentId: string): Promise<MentorReview[]> {
+    try {
+      return await this.getWhere<MentorReview>(
+        COLLECTIONS.MENTOR_REVIEWS,
+        'student_id',
+        '==',
+        studentId
+      );
+    } catch (error) {
+      console.error('Error fetching mentor reviews by student:', error);
+      throw error;
+    }
+  }
+
+  static async getLatestReview(mentorId: string, studentId?: string): Promise<MentorReview | null> {
+    try {
+      let reviews: MentorReview[];
+      
+      if (studentId) {
+        // Get reviews for specific mentor-student pair
+        reviews = await this.getWhereCompound<MentorReview>(
+          COLLECTIONS.MENTOR_REVIEWS,
+          [
+            { field: 'mentor_id', operator: '==', value: mentorId },
+            { field: 'student_id', operator: '==', value: studentId }
+          ]
+        );
+      } else {
+        // Get all reviews for mentor
+        reviews = await this.getReviewsByMentor(mentorId);
+      }
+      
+      if (reviews.length === 0) return null;
+      
+      const sortedReviews = reviews.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      return sortedReviews[0];
+    } catch (error) {
+      console.error('Error fetching latest mentor review:', error);
+      throw error;
+    }
+  }
+
+  static async getWeeklyReviews(weekStart: Date): Promise<MentorReview[]> {
+    try {
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7);
+      
+      return await this.getWhereCompound<MentorReview>(
+        COLLECTIONS.MENTOR_REVIEWS,
+        [
+          { field: 'week_start', operator: '>=', value: weekStart },
+          { field: 'week_start', operator: '<', value: weekEnd }
+        ],
+        'created_at',
+        'desc'
+      );
+    } catch (error) {
+      console.error('Error fetching weekly mentor reviews:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a student has already submitted a review for their mentor this week
+   * Prevents duplicate weekly submissions
+   * 
+   * @param mentorId - Mentor being reviewed
+   * @param studentId - Student submitting the review
+   * @param weekStart - Monday of the week (use getCurrentWeekStart())
+   * @returns boolean - true if review already exists for this week
+   */
+  static async hasSubmittedThisWeek(
+    mentorId: string,
+    studentId: string,
+    weekStart: Date
+  ): Promise<boolean> {
+    try {
+      console.log('🔍 [MentorReviewService] Checking for existing review:', {
+        mentorId,
+        studentId,
+        weekStart: weekStart.toISOString()
+      });
+
+      const reviews = await this.getWhereCompound<MentorReview>(
+        COLLECTIONS.MENTOR_REVIEWS,
+        [
+          { field: 'mentor_id', operator: '==', value: mentorId },
+          { field: 'student_id', operator: '==', value: studentId },
+          { field: 'week_start', operator: '==', value: weekStart }
+        ]
+      );
+
+      console.log('🔍 [MentorReviewService] Found existing reviews:', reviews.length);
+      return reviews.length > 0;
+    } catch (error) {
+      console.error('Error checking for existing mentor review:', error);
+      throw error;
+    }
+  }
+
+  // Get all reviews across campus for admin table view
+  static async getAllReviewsByCampus(campus: string): Promise<MentorReview[]> {
+    try {
+      // Get all mentor reviews, then filter by campus client-side
+      const { UserService } = await import('./firestore');
+      const allReviews = await this.getAll<MentorReview>(COLLECTIONS.MENTOR_REVIEWS);
+      
+      // Load all mentors to check campus
+      const mentorIdSet = new Set(allReviews.map(r => r.mentor_id));
+      const mentorIds = Array.from(mentorIdSet);
+      const mentors = await Promise.all(mentorIds.map(id => UserService.getUserById(id)));
+      const mentorCampusMap = new Map(mentors.map(m => [m?.id, m?.campus]));
+      
+      // Filter reviews for mentors on this campus
+      return allReviews.filter(review => mentorCampusMap.get(review.mentor_id) === campus);
+    } catch (error) {
+      console.error('Error fetching mentor reviews by campus:', error);
       throw error;
     }
   }

@@ -84,6 +84,7 @@ export const COLLECTIONS = {
   MENTOR_NOTES: 'mentor_notes',
   STUDENT_PROGRESS: 'student_progress',
   MENTEE_REVIEWS: 'mentee_reviews',
+  MENTOR_REVIEWS: 'mentor_reviews',
   MENTEE_REVIEW_CATEGORIES: 'mentee_review_categories',
   MENTOR_AVAILABILITY: 'mentor_availability',
   CAMPUS_SCHEDULES: 'campus_schedules',

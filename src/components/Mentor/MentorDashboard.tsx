@@ -2,8 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserService } from '../../services/firestore';
-import { GoalService, ReflectionService, AdminService, MenteeReviewService } from '../../services/dataServices';
+import { GoalService, ReflectionService, AdminService, MenteeReviewService, MentorReviewService } from '../../services/dataServices';
 import { User, MenteeOverview, DailyGoal, DailyReflection, MenteeReview } from '../../types';
+import { 
+  getCurrentWeekStart,
+  areSameWeek 
+} from '../../utils/reviewDateUtils';
 import {
   Users,
   Target,
@@ -18,6 +22,9 @@ import {
 import MentorCampusTab from '../Admin/MentorCampusTab';
 import { SpinnerLoader } from '../Common/BoltLoaderComponent';
 import CampusJoiningDateModal from '../Common/CampusJoiningDateModal';
+import ReviewActionsCard from '../Common/ReviewActionsCard';
+import ReviewUrgencyBanner from '../Common/ReviewUrgencyBanner';
+import { calculateReviewScore } from '../../utils/reviewCalculations';
 
 type ViewTypeValues = 'my-goals' | 'my-mentees' | 'my-mentor' | 'campus-overview';
 
@@ -52,6 +59,10 @@ const MentorDashboard: React.FC = () => {
   const [showJoiningDateModal, setShowJoiningDateModal] = useState(false);
   const [showReviewReminder, setShowReviewReminder] = useState(false);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const [myMentorReviews, setMyMentorReviews] = useState<any[]>([]);
+  const [myMentor, setMyMentor] = useState<User | null>(null);
+  const [myMentees, setMyMentees] = useState<User[]>([]);
+  const [menteeReviews, setMenteeReviews] = useState<Record<string, any>>({});
 
   const handleJoiningDateUpdated = useCallback((updatedUser: User) => {
     // Update the user data in auth context
@@ -59,24 +70,14 @@ const MentorDashboard: React.FC = () => {
     // The auth context should handle updating the user data
   }, []);
 
-  // Helper functions for review status
-  const getCurrentWeekStart = (): Date => {
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
-    const daysSinceSaturday = dayOfWeek === 6 ? 0 : dayOfWeek + 1;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - daysSinceSaturday);
-    weekStart.setHours(0, 0, 0, 0);
-    return weekStart;
-  };
-
-  const getReviewStatus = (latestReview: MenteeReview | null, currentWeekStart: Date): 'completed' | 'pending' | 'overdue' => {
+  // Helper function for simplified review status (backward compatibility)
+  const getSimplifiedReviewStatus = (latestReview: MenteeReview | null, currentWeekStart: Date): 'completed' | 'pending' | 'overdue' => {
     if (!latestReview) {
       return 'pending';
     }
 
     const reviewWeekStart = new Date(latestReview.week_start);
-    const isCurrentWeek = reviewWeekStart.getTime() === currentWeekStart.getTime();
+    const isCurrentWeek = areSameWeek(reviewWeekStart, currentWeekStart);
 
     if (isCurrentWeek) {
       return 'completed';
@@ -219,7 +220,7 @@ const MentorDashboard: React.FC = () => {
           // Get latest review for current week
           const latestReview = await MenteeReviewService.getLatestReview(student.id);
           const currentWeekStart = getCurrentWeekStart();
-          const reviewStatus = getReviewStatus(latestReview, currentWeekStart);
+          const reviewStatus = getSimplifiedReviewStatus(latestReview, currentWeekStart);
 
           return {
             student,
@@ -257,6 +258,67 @@ const MentorDashboard: React.FC = () => {
       loadDashboardData();
     }
   }, [userData, loadDashboardData]);
+
+  // Load mentor reviews from students and mentee data
+  const loadReviewData = useCallback(async () => {
+    if (!userData?.id) return;
+
+    try {
+      console.log('🔄 [MentorDashboard] Loading review data...');
+      
+      // Load reviews from students (students reviewing this mentor)
+      const reviews = await MentorReviewService.getReviewsByMentor(userData.id);
+      console.log(`📊 [MentorDashboard] Loaded ${reviews.length} mentor reviews`);
+      setMyMentorReviews(reviews);
+
+      // Load mentor's own mentor if exists
+      if (userData.mentor_id) {
+        const mentorUser = await UserService.getUserById(userData.mentor_id);
+        setMyMentor(mentorUser);
+      }
+
+      // Load mentees and their latest reviews
+      const mentees = await UserService.getStudentsByMentor(userData.id);
+      setMyMentees(mentees);
+
+      const reviewsMap: Record<string, any> = {};
+      for (const mentee of mentees) {
+        const latestReview = await MenteeReviewService.getLatestReview(mentee.id);
+        if (latestReview) {
+          reviewsMap[mentee.id] = latestReview;
+        }
+      }
+      setMenteeReviews(reviewsMap);
+    } catch (error) {
+      console.error('Error loading review data:', error);
+    }
+  }, [userData]);
+
+  // Initial load and reload on page visibility/focus
+  useEffect(() => {
+    loadReviewData();
+
+    // Reload data when user comes back to the tab or focuses the window
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('👁️ [MentorDashboard] Page became visible - reloading reviews');
+        loadReviewData();
+      }
+    };
+
+    const handleFocus = () => {
+      console.log('🎯 [MentorDashboard] Window focused - reloading reviews');
+      loadReviewData();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [loadReviewData]);
 
   const getTotalPendingReviews = () => {
     return stats.myGoals.pending + stats.myReflections.pending +
@@ -302,6 +364,22 @@ const MentorDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Urgency Banner for Overdue/Due Reviews */}
+      <ReviewUrgencyBanner
+        pendingReviews={menteeOverviews
+          .filter(overview => overview.weekly_review_status === 'pending')
+          .map(overview => ({
+            id: overview.student.id,
+            name: overview.student.name,
+            type: 'mentee' as const
+          }))
+        }
+        onNavigateToReview={(userId) => {
+          navigate(`/mentee-review/${userId}`);
+        }}
+        isDismissible={true}
+      />
 
       {/* Filter Cards - Always Visible */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -392,6 +470,31 @@ const MentorDashboard: React.FC = () => {
           </p>
         </button>
       </div>
+
+      {/* Review Actions Card */}
+      <ReviewActionsCard
+        receivedReviews={myMentorReviews.map((review) => ({
+          id: review.id,
+          name: review.reviewer_name || 'Student',
+          score: calculateReviewScore(review),
+          review: review // Pass full review object for time-based calculations
+        }))}
+        receivedTitle="Reviews from Students"
+        onViewReceivedDetails={(reviewId) => {
+          console.log('View received review:', reviewId);
+          // Could navigate to a detailed review view
+        }}
+        toReviewUsers={myMentees.map((mentee) => ({
+          id: mentee.id,
+          name: mentee.name,
+          score: menteeReviews[mentee.id] ? calculateReviewScore(menteeReviews[mentee.id]) : null,
+          review: menteeReviews[mentee.id] // Pass full review object for time-based calculations
+        }))}
+        toReviewTitle="Review My Mentees"
+        onSubmitReview={(userId) => {
+          navigate(`/mentee-review/${userId}`);
+        }}
+      />
 
       {/* Content Area */}
       {currentView === VIEW_TYPES.MY_GOALS && (
@@ -563,38 +666,42 @@ const MentorDashboard: React.FC = () => {
                           <span className="text-xs font-medium text-green-800">Latest Score</span>
                           <span className="text-sm font-bold text-green-900">
                             {(() => {
-                              const scores = [
-                                overview.latest_review.morning_exercise,
-                                overview.latest_review.communication,
-                                overview.latest_review.academic_effort,
-                                overview.latest_review.campus_contribution,
-                                overview.latest_review.behavioural
-                              ];
-                              const avg = Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
-                              return `${avg}/2`;
+                              // Use centralized function for consistency
+                              const avg = calculateReviewScore(overview.latest_review);
+                              return `${avg.toFixed(1)}/2`;
                             })()}
                           </span>
                         </div>
                         <div className="flex space-x-1 mt-1">
-                          {[
-                            overview.latest_review.morning_exercise,
-                            overview.latest_review.communication,
-                            overview.latest_review.academic_effort,
-                            overview.latest_review.campus_contribution,
-                            overview.latest_review.behavioural
-                          ].map((score, idx) => (
-                            <div key={idx} className="flex-1">
-                              <div className="w-full bg-green-200 rounded-full h-1">
-                                <div
-                                  className={`h-1 rounded-full ${
-                                    score >= 1 ? 'bg-green-500' :
-                                    score >= 0 ? 'bg-yellow-500' : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${((score + 2) / 4) * 100}%` }}
-                                ></div>
+                          {(() => {
+                            // Build criteria array dynamically based on review type
+                            const criteria: number[] = [
+                              overview.latest_review.morning_exercise,
+                              overview.latest_review.communication,
+                              overview.latest_review.academic_effort,
+                              overview.latest_review.campus_contribution,
+                              overview.latest_review.behavioural
+                            ];
+                            
+                            // Add mentorship_level if it exists (MentorReview only - when students review mentors)
+                            if ('mentorship_level' in overview.latest_review) {
+                              criteria.push((overview.latest_review as any).mentorship_level);
+                            }
+                            
+                            return criteria.map((score, idx) => (
+                              <div key={idx} className="flex-1">
+                                <div className="w-full bg-green-200 rounded-full h-1">
+                                  <div
+                                    className={`h-1 rounded-full ${
+                                      score >= 1 ? 'bg-green-500' :
+                                      score >= 0 ? 'bg-yellow-500' : 'bg-red-500'
+                                    }`}
+                                    style={{ width: `${((score + 2) / 4) * 100}%` }}
+                                  ></div>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ));
+                          })()}
                         </div>
                       </div>
                     )}

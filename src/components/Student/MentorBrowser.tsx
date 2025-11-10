@@ -102,7 +102,15 @@ const MentorBrowser: React.FC<MentorBrowserProps> = ({
       console.log(`✅ [MentorBrowser] Received ${result.mentors.length} more mentors, hasMore: ${result.hasMore}`);
       
       const filtered = result.mentors.filter(m => m.mentor.id !== currentStudentId);
-      setAllMentors(prev => [...prev, ...filtered]);
+      
+      // Deduplicate mentors by ID before adding to state
+      setAllMentors(prev => {
+        const existingIds = new Set(prev.map(m => m.mentor.id));
+        const newMentors = filtered.filter(m => !existingIds.has(m.mentor.id));
+        console.log(`📝 [MentorBrowser] Adding ${newMentors.length} new mentors (${filtered.length - newMentors.length} duplicates skipped)`);
+        return [...prev, ...newMentors];
+      });
+      
       setLastDoc(result.lastDoc);
       setHasMore(result.hasMore);
     } catch (error) {

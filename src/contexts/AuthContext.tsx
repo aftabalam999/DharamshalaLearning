@@ -11,6 +11,10 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<FirebaseUser>;
   signOut: () => Promise<void>;
   isAdmin: () => boolean;
+  isSuperMentor: () => boolean;
+  isAcademicAssociate: () => boolean;
+  isMentor: () => boolean;
+  isStudent: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -77,6 +81,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return userData?.isAdmin || false;
   };
 
+  // Check if user is super mentor
+  const isSuperMentor = (): boolean => {
+    return userData?.isSuperMentor || userData?.role === 'super_mentor' || false;
+  };
+
+  // Check if user is academic associate
+  const isAcademicAssociate = (): boolean => {
+    return userData?.role === 'academic_associate' || false;
+  };
+
+  // Check if user is mentor (regular or super)
+  // Can mentor others - works with hierarchy (can be student + mentor)
+  const isMentor = (): boolean => {
+    return userData?.isMentor || 
+           userData?.isSuperMentor || 
+           userData?.role === 'mentor' || 
+           userData?.role === 'super_mentor' || 
+           false;
+  };
+
+  // Check if user is student (has a mentor OR no elevated role prevents it)
+  // Students can ALSO be admins, mentors, etc. (hierarchy system)
+  const isStudent = (): boolean => {
+    // Primary check: Do they have a mentor? If yes, they ARE a student
+    // This works even if they're also admin/mentor (hierarchy)
+    if (userData?.mentor_id) {
+      return true;
+    }
+    
+    // Secondary check: If no mentor_id, check if they're a professional role
+    // Professional roles (without mentor_id) are NOT students
+    const isProfessionalRole = 
+      userData?.role === 'admin' ||
+      userData?.role === 'academic_associate' ||
+      userData?.role === 'super_mentor' ||
+      userData?.role === 'mentor';
+    
+    // If they have no mentor AND they're a professional role, not a student
+    // Otherwise, assume they're a student (default)
+    return !isProfessionalRole;
+  };
+
   const value: AuthContextType = {
     currentUser,
     userData,
@@ -84,7 +130,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     signInWithGoogle,
     signOut,
-    isAdmin
+    isAdmin,
+    isSuperMentor,
+    isAcademicAssociate,
+    isMentor,
+    isStudent
   };
 
   return (

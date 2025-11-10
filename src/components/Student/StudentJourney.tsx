@@ -7,7 +7,7 @@ import { UserSelector } from '../Common/UserSelector';
 import { CampusFilter } from '../Common/CampusFilter';
 import type { Campus } from '../Common/CampusFilter';
 import { TrendingUp, BookOpen, Target, Award } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { HouseStatsService, HouseAverageData } from '../../services/houseStatsService';
 
 interface TopicProgress {
@@ -38,6 +38,7 @@ interface PhaseDurationData {
 interface CombinedChartData {
   phaseLabel: string;
   yourDays: number;
+  cumulativeDays: number;
   houseAverage: number;
 }
 
@@ -102,7 +103,7 @@ const calculatePhaseDurations = (phaseProgress: PhaseProgress[], campusJoiningDa
       daysSpent,
       status,
       color,
-      phaseLabel: `Phase ${index + 1}`
+      phaseLabel: `Phase ${phaseData.phase.order}`
     });
   });
 
@@ -124,12 +125,17 @@ const combineChartData = (studentData: PhaseDurationData[], houseData: HouseAver
   // Create a map of house data for easy lookup
   const houseDataMap = new Map(houseData.map(item => [item.phaseLabel, item.averageDays]));
 
-  // Use student data as the base and add house averages
+  // Calculate cumulative days
+  let cumulativeDays = 0;
+
+  // Use student data as the base and add house averages + cumulative
   studentData.forEach(studentItem => {
+    cumulativeDays += studentItem.daysSpent;
     const houseAverage = houseDataMap.get(studentItem.phaseLabel) || 0;
     combined.push({
       phaseLabel: studentItem.phaseLabel,
       yourDays: studentItem.daysSpent,
+      cumulativeDays: cumulativeDays,
       houseAverage: houseAverage
     });
   });
@@ -149,7 +155,16 @@ const StudentJourney: React.FC = () => {
   const [selectedCampus, setSelectedCampus] = useState<Campus>('All');
   const [combinedChartData, setCombinedChartData] = useState<CombinedChartData[]>([]);
 
+    // Auto-set campus for academic associates (they can only view their own campus)
+    useEffect(() => {
+      if (userData?.role === 'academic_associate' && userData?.campus) {
+        setSelectedCampus(userData.campus as Campus);
+      }
+    }, [userData?.role, userData?.campus]);
+
   const handleCampusSelect = (campus: Campus) => {
+      // Academic associates cannot change campus - locked to their own
+      if (userData?.role === 'academic_associate') return;
     setSelectedCampus(campus);
     setSelectedUserId('');
     setSelectedUserData(null);
@@ -239,28 +254,30 @@ const StudentJourney: React.FC = () => {
           let completed = false;
           let completionDate: Date | undefined;
 
-          // A phase is considered complete when user starts creating goals for the next phase
+          // A topic is marked complete if:
+          // 1. Student has goals for this topic AND
+          // 2. Student has moved to a later phase (has goals in phases with higher order)
           try {
-            // Get all goals for this topic, sorted by date
-            const sortedGoals = topicGoals.sort((a, b) => 
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            );
+            if (topicGoals.length > 0) {
+              // Check if student has started any later phases
+              const currentPhaseOrder = phase.order;
+              const hasLaterPhaseGoals = userGoals.some(g => {
+                // Find the phase for this goal
+                const goalPhase = phases.find(p => p.id === g.phase_id);
+                return goalPhase && goalPhase.order > currentPhaseOrder;
+              });
 
-            if (sortedGoals.length > 0) {
-              const lastGoalDate = new Date(sortedGoals[sortedGoals.length - 1].created_at);
-
-              // Filter goals from the next phase (already in userGoals list)
-              const nextPhaseFirstGoal = userGoals
-                .filter(g => g.phase_id === phases[phase.order].id) // next phase
-                .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
-
-              if (nextPhaseFirstGoal) {
-                const nextPhaseStartDate = new Date(nextPhaseFirstGoal.created_at);
-                // If user has started the next phase, mark this topic as completed
-                if (lastGoalDate < nextPhaseStartDate) {
-                  completed = true;
-                  completionDate = lastGoalDate;
-                }
+              // Mark complete if student has moved beyond this phase
+              if (hasLaterPhaseGoals) {
+                completed = true;
+                // Use the last goal date as completion date
+                const sortedGoals = topicGoals.sort((a, b) => 
+                  new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                );
+                completionDate = new Date(sortedGoals[0].created_at);
+              } else {
+                // Student is still on this phase - mark as in progress (not complete)
+                completed = false;
               }
             }
           } catch (error) {
@@ -326,16 +343,17 @@ const StudentJourney: React.FC = () => {
       setPhaseProgress(phaseProgressData);
 
       // Calculate phase duration data for the chart
-      const durationData: PhaseDurationData[] = calculatePhaseDurations(phaseProgressData, userData?.campus_joining_date);
+      const durationData: PhaseDurationData[] = calculatePhaseDurations(phaseProgressData, (selectedUserData || userData)?.campus_joining_date);
       console.log('Duration data:', durationData);
 
       // Load cached house averages (fast - only 3-5 Firestore reads)
       let houseData: HouseAverageData[] = [];
-      if (userData?.house) {
+      const targetUser = selectedUserData || userData;
+      if (targetUser?.house) {
         try {
           setLoadingStage('Loading house comparison data...');
           console.log('Loading cached house average data...');
-          houseData = await HouseStatsService.getHouseAverages(userData.house);
+          houseData = await HouseStatsService.getHouseAverages(targetUser.house);
           console.log('Loaded house averages from cache:', houseData);
           
           if (houseData.length === 0) {
@@ -359,7 +377,7 @@ const StudentJourney: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [userData, selectedUserId]);
+  }, [userData, selectedUserId, selectedUserData]);
 
   const lastLoadedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -405,18 +423,27 @@ const StudentJourney: React.FC = () => {
         <p className="text-gray-600">Track your progress through the curriculum phases and topics</p>
       </div>
 
-      {/* Show filters only for admins */}
-      {userData?.isAdmin && (
+        {/* Show filters for admins and academic associates */}
+        {(userData?.isAdmin || userData?.role === 'academic_associate') && (
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Filter Students</h3>
           <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Campus</label>
-              <CampusFilter
-                selectedCampus={selectedCampus}
-                onCampusSelect={handleCampusSelect}
-              />
-            </div>
+              {userData?.isAdmin ? (
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Campus</label>
+                  <CampusFilter
+                    selectedCampus={selectedCampus}
+                    onCampusSelect={handleCampusSelect}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Campus</label>
+                  <div className="px-4 py-2 text-gray-700 bg-gray-100 border border-gray-300 rounded-md">
+                    {userData?.campus || 'Not Set'}
+                  </div>
+                </div>
+              )}
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 mb-1">Student</label>
               <UserSelector 
@@ -440,13 +467,13 @@ const StudentJourney: React.FC = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">{userData?.name}</h2>
-              <p className="text-gray-600">Student ID: {userData?.id}</p>
+              <h2 className="text-2xl font-bold text-gray-900">{selectedUserData?.name || userData?.name}</h2>
+              <p className="text-gray-600">Student ID: {selectedUserData?.id || userData?.id}</p>
             </div>
             <div className="text-right">
               <div className="text-sm text-gray-500">Current Phase</div>
               <div className="text-lg font-semibold text-blue-600">
-                {userData?.current_phase_name || 'Not Set'}
+                {selectedUserData?.current_phase_name || userData?.current_phase_name || 'Not Set'}
               </div>
             </div>
           </div>
@@ -492,48 +519,67 @@ const StudentJourney: React.FC = () => {
           <h3 className="text-xl font-semibold text-gray-900 mb-4">Phase Duration Analysis</h3>
           <div className="bg-gray-50 rounded-lg p-6">
             <h4 className="text-lg font-medium text-gray-900 mb-4">
-              Your Progress vs {userData?.house} House Average
+              Your Progress vs {(selectedUserData || userData)?.house} House Average
             </h4>
             <div className="h-80">
               {combinedChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={combinedChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <ComposedChart data={combinedChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="phaseLabel"
                       tick={{ fontSize: 12 }}
                     />
                     <YAxis
-                      label={{ value: 'Days Spent', angle: -90, position: 'insideLeft' }}
+                      yAxisId="left"
+                      label={{ value: 'Days', angle: -90, position: 'insideLeft' }}
                       tick={{ fontSize: 12 }}
                     />
                     <Tooltip
                       formatter={(value: number, name: string) => {
-                        if (name === 'yourDays') return [`${value} days`, 'Your Progress'];
+                        if (name === 'yourDays') return [`${value} days`, 'Phase Days'];
+                        if (name === 'cumulativeDays') return [`${value} days`, 'Cumulative Total'];
                         if (name === 'houseAverage') return [`${value} days`, 'House Average'];
                         return [`${value} days`, name];
                       }}
                       labelFormatter={(label: string) => `${label}`}
                     />
-                    <Line
-                      type="monotone"
+                    <Legend />
+                    
+                    {/* Bar chart for individual phase days */}
+                    <Bar
+                      yAxisId="left"
                       dataKey="yourDays"
-                      stroke="#3B82F6"
-                      strokeWidth={3}
-                      dot={{ fill: '#3B82F6', strokeWidth: 2, r: 6 }}
-                      activeDot={{ r: 8, stroke: '#3B82F6', strokeWidth: 2 }}
-                      name="Your Progress"
+                      fill="#3B82F6"
+                      name="Phase Days"
+                      radius={[8, 8, 0, 0]}
                     />
+                    
+                    {/* Line chart for cumulative days */}
                     <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="cumulativeDays"
+                      stroke="#F59E0B"
+                      strokeWidth={3}
+                      dot={{ fill: '#F59E0B', strokeWidth: 2, r: 6 }}
+                      activeDot={{ r: 8, stroke: '#F59E0B', strokeWidth: 2 }}
+                      name="Cumulative Total"
+                    />
+                    
+                    {/* Line chart for house average */}
+                    <Line
+                      yAxisId="left"
                       type="monotone"
                       dataKey="houseAverage"
                       stroke="#10B981"
-                      strokeWidth={3}
-                      dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
-                      activeDot={{ r: 8, stroke: '#10B981', strokeWidth: 2 }}
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={{ fill: '#10B981', strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: '#10B981', strokeWidth: 2 }}
                       name="House Average"
                     />
-                  </LineChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-gray-500">
@@ -543,14 +589,18 @@ const StudentJourney: React.FC = () => {
             </div>
 
             {/* Legend */}
-            <div className="flex justify-center mt-6 space-x-8 text-sm">
+            <div className="flex justify-center mt-6 space-x-6 text-sm">
               <div className="flex items-center">
-                <div className="w-4 h-1 bg-blue-500 rounded mr-2"></div>
-                <span>Your Progress</span>
+                <div className="w-6 h-4 bg-blue-500 rounded mr-2"></div>
+                <span>Phase Days (Bar)</span>
               </div>
               <div className="flex items-center">
-                <div className="w-4 h-1 bg-green-500 rounded mr-2"></div>
-                <span>House Average</span>
+                <div className="w-6 h-1 bg-amber-500 rounded mr-2"></div>
+                <span>Cumulative Total (Line)</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-6 h-1 bg-green-500 rounded mr-2" style={{ borderTop: '2px dashed #10B981' }}></div>
+                <span>House Average (Dashed)</span>
               </div>
             </div>
           </div>
