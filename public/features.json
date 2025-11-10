@@ -1,8 +1,17 @@
 {
-  "generatedAt": "2025-11-10T03:13:01.705Z",
+  "generatedAt": "2025-11-10T04:00:50.142Z",
   "version": "0.1.0",
   "features": {
     "all": [
+      {
+        "id": "feature-81cb6c5e",
+        "title": "Simplify review flow - unified path from home dashboard",
+        "description": "Simplify review flow - unified path from home dashboard",
+        "status": "released",
+        "dateAdded": "2025-11-10",
+        "commitHash": "81cb6c5e56a8cc2216887bb270d0e250212d035e",
+        "author": "Mubin"
+      },
       {
         "id": "feature-f143525b",
         "title": "Add context-aware review system - mentor vs mentee detection",
@@ -168,6 +177,15 @@
       }
     ],
     "released": [
+      {
+        "id": "feature-81cb6c5e",
+        "title": "Simplify review flow - unified path from home dashboard",
+        "description": "Simplify review flow - unified path from home dashboard",
+        "status": "released",
+        "dateAdded": "2025-11-10",
+        "commitHash": "81cb6c5e56a8cc2216887bb270d0e250212d035e",
+        "author": "Mubin"
+      },
       {
         "id": "feature-f143525b",
         "title": "Add context-aware review system - mentor vs mentee detection",

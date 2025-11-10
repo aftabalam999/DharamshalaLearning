@@ -472,7 +472,7 @@ const StudentDashboard: React.FC = () => {
       {mentorData && (
         <ReviewDeadlineEnforcement
           hasSubmitted={hasSubmittedMentorReviewThisWeek}
-          onReviewClick={() => setShowMentorReviewModal(true)}
+          onReviewClick={() => navigate(`/mentor/mentee/${mentorData.id}`)}
           reviewType="mentor"
           revieweeName={mentorData.name}
         />
