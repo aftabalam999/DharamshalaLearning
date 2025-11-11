@@ -22,3 +22,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Service Account Keys (sensitive)
+scripts/*service-account*.json
+scripts/dharamshalacampus-*.json

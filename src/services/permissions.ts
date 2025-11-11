@@ -45,7 +45,15 @@ export async function canReviewGoal(user: User, goal: DailyGoal): Promise<boolea
   // Super Mentor / Mentor can review goals from their assigned mentees
   if (user.isSuperMentor || user.role === 'super_mentor' || user.role === 'mentor') {
     const assignedMentees = await UserService.getAssignedMentees(user.id);
-    return assignedMentees.includes(goal.student_id);
+    const hasPermission = assignedMentees.includes(goal.student_id);
+    console.log('👨‍🏫 Mentor permission check (goal):', {
+      mentorId: user.id,
+      mentorName: user.name,
+      goalStudentId: goal.student_id,
+      assignedMentees,
+      hasPermission
+    });
+    return hasPermission;
   }
 
   // Students and users without elevated roles cannot review
@@ -85,7 +93,15 @@ export async function canReviewReflection(user: User, reflection: DailyReflectio
   // Super Mentor / Mentor can review reflections from their assigned mentees
   if (user.isSuperMentor || user.role === 'super_mentor' || user.role === 'mentor') {
     const assignedMentees = await UserService.getAssignedMentees(user.id);
-    return assignedMentees.includes(reflection.student_id);
+    const hasPermission = assignedMentees.includes(reflection.student_id);
+    console.log('👨‍🏫 Mentor permission check (reflection):', {
+      mentorId: user.id,
+      mentorName: user.name,
+      reflectionStudentId: reflection.student_id,
+      assignedMentees,
+      hasPermission
+    });
+    return hasPermission;
   }
 
   // Students and users without elevated roles cannot review

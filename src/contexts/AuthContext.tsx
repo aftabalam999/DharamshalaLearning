@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { User as FirebaseUser } from 'firebase/auth';
 import { AuthService } from '../services/auth';
 import { User } from '../types';
+import { LoginTrackingService } from '../services/loginTrackingService';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -51,6 +52,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const data = await AuthService.getCurrentUserData();
           console.log('✅ User data loaded:', data?.name);
           setUserData(data);
+
+          // Track login (non-blocking, only once per day)
+          if (data) {
+            LoginTrackingService.trackLogin(data).catch(err => {
+              console.error('Login tracking error (non-blocking):', err);
+            });
+          }
         } catch (error) {
           console.error('❌ Error loading user data:', error);
           setUserData(null);
