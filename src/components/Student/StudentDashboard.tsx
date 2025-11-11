@@ -14,7 +14,6 @@ import {
 } from '../../services/dataServices';
 import { UserService } from '../../services/firestore';
 import MentorBrowser from './MentorBrowser';
-import ReviewActionsCard from '../Common/ReviewActionsCard';
 import ReviewDeadlineEnforcement from './ReviewDeadlineEnforcement';
 import { 
   DailyGoal, 
@@ -565,38 +564,51 @@ const StudentDashboard: React.FC = () => {
 
       {/* Quick Actions Grid - 1:2 Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Review Actions Card (1 column) */}
-        <ReviewActionsCard
-          receivedReviews={(stats.reviewHistory || []).map((review) => ({
-            id: review.id || `review-${review.created_at}`,
-            name: mentorData?.name || 'Mentor',
-            score: review.score || calculateReviewScore(review),
-            review: review // Pass full review object for time-based calculations
-          }))}
-          receivedTitle="Your Performance"
-          onViewReceivedDetails={(reviewerId) => {
-            setSelectedReviewerId(reviewerId);
-            setShowReviewModal(true);
-          }}
-          toReviewUsers={[
-            ...(mentorData ? [{
-              id: mentorData.id,
-              name: mentorData.name,
-              score: null
-            }] : []),
-            ...myMentees.map(mentee => ({
-              id: mentee.id,
-              name: mentee.name,
-              score: menteeReviews.get(mentee.id)?.score ?? null
-            }))
-          ]}
-          toReviewTitle={myMentees.length > 0 ? "Review Mentor & Mentees" : "Review Your Mentor"}
-          onSubmitReview={(userId) => {
-            // Navigate to person's history page
-            // The page will show their history and a "Review Now" button
-            navigate(`/mentor/mentee/${userId}`);
-          }}
-        />
+        {/* Reviews Stats Card - Simple version (1 column) */}
+        <div 
+          onClick={() => navigate('/reviews')}
+          className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-xl transition-all transform hover:-translate-y-1"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <Star className="h-6 w-6 mr-2" />
+              <h3 className="text-lg font-bold">Reviews</h3>
+            </div>
+            <ChevronDown className="h-5 w-5 rotate-[-90deg]" />
+          </div>
+          
+          <div className="space-y-3">
+            {/* Your Performance */}
+            <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur-sm">
+              <p className="text-xs opacity-90 mb-1">Your Performance</p>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold">
+                  {stats.reviewScore ? stats.reviewScore.toFixed(1) : 'N/A'}
+                </span>
+                <span className="text-xs opacity-75">Average Score</span>
+              </div>
+            </div>
+
+            {/* People to Review */}
+            <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur-sm">
+              <p className="text-xs opacity-90 mb-1">People to Review</p>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold">
+                  {(mentorData ? 1 : 0) + myMentees.length}
+                </span>
+                <span className="text-xs opacity-75">
+                  {mentorData && !hasSubmittedMentorReviewThisWeek && (
+                    <span className="bg-red-500 px-2 py-1 rounded-full animate-pulse">Due</span>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-center opacity-75 mt-2">
+              Click to view detailed reviews →
+            </p>
+          </div>
+        </div>
 
         {/* Book Session & My Mentor Cards (2 columns) */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">

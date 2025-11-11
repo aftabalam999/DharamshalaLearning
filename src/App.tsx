@@ -23,6 +23,9 @@ import MentorDashboard from './components/Mentor/MentorDashboard';
 import MentorMenteeReview from './components/Mentor/MentorMenteeReview';
 import PairProgrammingManagement from './components/Mentor/PairProgrammingManagement';
 
+// Review Page
+import ReviewsPage from './pages/ReviewsPage';
+
 // Pair Programming Components
 import PairProgrammingDashboard from './components/PairProgramming/PairProgrammingDashboard';
 import CalendarView from './components/PairProgramming/CalendarView';
@@ -133,6 +136,15 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <MenteeSlotBooking />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Reviews Route - Dedicated page for all review functionality */}
+            <Route path="/reviews" element={
+              <ProtectedRoute>
+                <Layout>
+                  <ReviewsPage />
                 </Layout>
               </ProtectedRoute>
             } />

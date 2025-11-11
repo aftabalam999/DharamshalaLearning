@@ -22,8 +22,6 @@ import {
 import MentorCampusTab from '../Admin/MentorCampusTab';
 import { SpinnerLoader } from '../Common/BoltLoaderComponent';
 import CampusJoiningDateModal from '../Common/CampusJoiningDateModal';
-import ReviewActionsCard from '../Common/ReviewActionsCard';
-import ReviewUrgencyBanner from '../Common/ReviewUrgencyBanner';
 import { calculateReviewScore } from '../../utils/reviewCalculations';
 
 type ViewTypeValues = 'my-goals' | 'my-mentees' | 'my-mentor' | 'campus-overview';
@@ -365,23 +363,6 @@ const MentorDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Urgency Banner for Overdue/Due Reviews */}
-      <ReviewUrgencyBanner
-        pendingReviews={menteeOverviews
-          .filter(overview => overview.weekly_review_status === 'pending')
-          .map(overview => ({
-            id: overview.student.id,
-            name: overview.student.name,
-            type: 'mentee' as const
-          }))
-        }
-        onNavigateToReview={(userId) => {
-          // Navigate to unified review flow
-          navigate(`/mentor/mentee/${userId}`);
-        }}
-        isDismissible={true}
-      />
-
       {/* Filter Cards - Always Visible */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* My Goals Card */}
@@ -471,32 +452,6 @@ const MentorDashboard: React.FC = () => {
           </p>
         </button>
       </div>
-
-      {/* Review Actions Card */}
-      <ReviewActionsCard
-        receivedReviews={myMentorReviews.map((review) => ({
-          id: review.id,
-          name: review.reviewer_name || 'Student',
-          score: calculateReviewScore(review),
-          review: review // Pass full review object for time-based calculations
-        }))}
-        receivedTitle="Reviews from Students"
-        onViewReceivedDetails={(reviewId) => {
-          console.log('View received review:', reviewId);
-          // Could navigate to a detailed review view
-        }}
-        toReviewUsers={myMentees.map((mentee) => ({
-          id: mentee.id,
-          name: mentee.name,
-          score: menteeReviews[mentee.id] ? calculateReviewScore(menteeReviews[mentee.id]) : null,
-          review: menteeReviews[mentee.id] // Pass full review object for time-based calculations
-        }))}
-        toReviewTitle="Review My Mentees"
-        onSubmitReview={(userId) => {
-          // Navigate to unified review flow - shows history then "Review Now" button
-          navigate(`/mentor/mentee/${userId}`);
-        }}
-      />
 
       {/* Content Area */}
       {currentView === VIEW_TYPES.MY_GOALS && (

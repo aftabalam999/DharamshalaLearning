@@ -68,16 +68,35 @@ const MentorAssignment: React.FC = () => {
     }
   };
 
-  const loadStudents = async () => {
+const loadStudents = async () => {
     try {
       setLoading(true);
       const allUsers = await AdminService.getAllUsers();
       const phases = await PhaseService.getAllPhases();
       
+      console.log('📊 Total users loaded:', allUsers.length);
+      
       // Get students (non-admin users) with their current phase
+      // Filter based on role field primarily, fallback to isAdmin for backward compatibility
       const studentsData = await Promise.all(
         allUsers
-          .filter(u => !u.isAdmin)
+          .filter(u => {
+            // Explicit role check (preferred method)
+            const role = u.role || 'student'; // Default to student if no role
+            const isStudent = role === 'student' || role === 'mentee';
+            
+            // Backward compatibility: also check isAdmin field
+            const notAdmin = !u.isAdmin;
+            
+            // Include if either condition is true
+            const shouldInclude = isStudent || (notAdmin && !['admin', 'academic_associate'].includes(role));
+            
+            if (!shouldInclude) {
+              console.log(`⊘ Filtering out user: ${u.name} (role: ${role}, isAdmin: ${u.isAdmin})`);
+            }
+            
+            return shouldInclude;
+          })
           .map(async (user) => {
             const phaseId = await AdminService.getStudentCurrentPhase(user.id);
             const phase = phaseId ? phases.find(p => p.id === phaseId) : null;
@@ -93,9 +112,15 @@ const MentorAssignment: React.FC = () => {
           })
       );
 
+      console.log('✅ Students loaded for assignment:', studentsData.length);
+      console.log('📝 Students breakdown:', {
+        withMentor: studentsData.filter(s => s.mentor_id).length,
+        withoutMentor: studentsData.filter(s => !s.mentor_id).length
+      });
+      
       setStudents(studentsData);
     } catch (error) {
-      console.error('Error loading students:', error);
+      console.error('❌ Error loading students:', error);
     } finally {
       setLoading(false);
     }
@@ -254,11 +279,30 @@ const MentorAssignment: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Students List */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Student</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Select Student</h3>
+              <button
+                onClick={async () => {
+                  console.log('🔄 Refreshing user cache...');
+                  // Invalidate cache
+                  const { queryCache } = await import('../../utils/cache');
+                  queryCache.invalidate('all-users');
+                  // Reload students
+                  await loadStudents();
+                  await loadPendingRequestsCount();
+                  console.log('✅ Cache refreshed and data reloaded');
+                }}
+                className="flex items-center space-x-2 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                title="Refresh user list and clear cache"
+              >
+                <TrendingUp className="h-4 w-4" />
+                <span>Refresh</span>
+              </button>
+            </div>
             
             {/* Search and Filters */}
             <div className="space-y-3">

@@ -99,11 +99,21 @@ const MentorCampusTab: React.FC<{ campusId: string }> = ({ campusId }) => {
     setUserReflections([]);
   };
 
-  const canApprove = (studentId: string) => {
+const canApprove = (studentId: string) => {
     if (!userData) return false;
 
     // Admin can approve everyone
     if (userData.isAdmin || userData.role === 'admin') return true;
+
+    // Academic Associate can approve students on their campus
+    if (userData.role === 'academic_associate' && userData.campus) {
+      // Check if selected user is from the same campus
+      if (selectedUser && selectedUser.campus === userData.campus) {
+        return true;
+      }
+      // Fallback: check if student is in the campus data (already filtered by campus)
+      return true; // Since fetchCampusData already filters by campus
+    }
 
     // Assigned mentor can approve their mentees
     if (userData.isMentor || userData.role === 'mentor' || userData.role === 'super_mentor') {

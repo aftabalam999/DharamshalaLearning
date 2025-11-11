@@ -95,6 +95,12 @@ export default function Navigation() {
       icon: TrendingUp
     },
     {
+      label: 'Reviews',
+      mobileLabel: 'Reviews',
+      path: '/reviews',
+      icon: UserCircle
+    },
+    {
       label: 'Pair Programming',
       mobileLabel: 'Pair Prog',
       path: '/pair-programming/dashboard',
