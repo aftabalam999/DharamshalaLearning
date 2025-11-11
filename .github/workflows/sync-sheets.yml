@@ -36,14 +36,28 @@ jobs:
       
       - name: Send Discord notification on success
         if: success()
+        continue-on-error: true
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d '{"embeds":[{"title":"✅ Google Sheets Sync Complete","description":"Daily sync completed successfully!","color":65280,"timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%S)"'","footer":{"text":"Campus Learning Dashboard - GitHub Actions"}}]}'
+          if [ -n "$WEBHOOK_URL" ]; then
+            curl -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"embeds":[{"title":"✅ Google Sheets Sync Complete","description":"Daily sync completed successfully!","color":65280,"timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%S)"'","footer":{"text":"Campus Learning Dashboard - GitHub Actions"}}]}'
+          else
+            echo "Discord webhook not configured, skipping notification"
+          fi
       
       - name: Send Discord notification on failure
         if: failure()
+        continue-on-error: true
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d '{"embeds":[{"title":"❌ Google Sheets Sync Failed","description":"Daily sync encountered an error. Check GitHub Actions logs.","color":16711680,"timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%S)"'","footer":{"text":"Campus Learning Dashboard - GitHub Actions"}}]}'
+          if [ -n "$WEBHOOK_URL" ]; then
+            curl -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"embeds":[{"title":"❌ Google Sheets Sync Failed","description":"Daily sync encountered an error. Check GitHub Actions logs.","color":16711680,"timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%S)"'","footer":{"text":"Campus Learning Dashboard - GitHub Actions"}}]}'
+          else
+            echo "Discord webhook not configured, skipping notification"
+          fi
