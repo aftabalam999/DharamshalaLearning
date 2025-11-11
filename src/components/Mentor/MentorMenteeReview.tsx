@@ -7,6 +7,7 @@ import { UserService } from '../../services/firestore';
 import { User, DailyGoal, DailyReflection, Phase, Topic, MenteeReviewForm, MentorReviewForm } from '../../types';
 import { getCurrentWeekStart } from '../../utils/reviewDateUtils';
 import Toast from '../Common/Toast';
+import { queryCache } from '../../utils/cache';
 import { 
   ArrowLeft, 
   Target, 
@@ -221,6 +222,10 @@ const MentorMenteeReview: React.FC = () => {
           feedbackForm.goalStatus,
           feedbackForm.goalComment
         );
+        
+        // Invalidate cache for this student's goals
+        queryCache.invalidate(`goals:student:${selectedItem.goal.student_id}`);
+        queryCache.invalidate('all-users');
       }
 
       // Update reflection with feedback if exists
@@ -232,7 +237,36 @@ const MentorMenteeReview: React.FC = () => {
           feedbackForm.mentorNotes,
           feedbackForm.assessment || undefined
         );
+        
+        // Invalidate cache for this student's reflections
+        queryCache.invalidate(`reflections:student:${selectedItem.reflection.student_id}`);
+        queryCache.invalidate('all-users');
       }
+
+      // Optimistically update the UI
+      setReviewItems(prev => prev.map(item => {
+        if (item.goal.id === selectedItem.goal.id) {
+          return {
+            ...item,
+            goal: {
+              ...item.goal,
+              status: feedbackForm.goalStatus || item.goal.status,
+              mentor_comment: feedbackForm.goalComment || item.goal.mentor_comment,
+              reviewed_by: userData.id,
+              reviewed_at: new Date()
+            },
+            reflection: item.reflection ? {
+              ...item.reflection,
+              status: feedbackForm.reflectionStatus || item.reflection.status,
+              mentor_notes: feedbackForm.mentorNotes || item.reflection.mentor_notes,
+              mentor_assessment: feedbackForm.assessment || item.reflection.mentor_assessment,
+              reviewed_by: userData.id,
+              reviewed_at: new Date()
+            } : undefined
+          };
+        }
+        return item;
+      }));
 
       // Show success message
       setToast({ 
@@ -243,8 +277,11 @@ const MentorMenteeReview: React.FC = () => {
         type: 'success' 
       });
 
-      // Reload data
-      await loadStudentData();
+      // Reload data in background (will fetch fresh data due to cache invalidation)
+      setTimeout(() => {
+        loadStudentData();
+      }, 500);
+      
       closeFeedbackPanel();
     } catch (error) {
       console.error('Error submitting feedback:', error);
