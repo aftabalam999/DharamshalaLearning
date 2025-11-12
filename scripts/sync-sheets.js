@@ -109,9 +109,7 @@ async function updateLastSyncTime(stats) {
       .set({
         last_sync_time: admin.firestore.FieldValue.serverTimestamp(),
         last_sync_status: 'success',
-        goals_synced: stats.goals,
-        reflections_synced: stats.reflections,
-        logins_synced: stats.logins,
+        journey_records_synced: stats.journey,
         last_run_at: new Date().toISOString()
       }, { merge: true });
     
@@ -122,186 +120,175 @@ async function updateLastSyncTime(stats) {
 }
 
 /**
- * Sync goals to Google Sheets
+ * Sync student journey (goals + reflections combined)
  */
-async function syncGoals(sheets, since) {
-  console.log('\n📊 Syncing goals...');
+async function syncStudentJourney(sheets, since) {
+  console.log('\n📊 Syncing student journey (goals + reflections)...');
   
   try {
-    let query = db.collection('daily_goals');
-    
+    // Step 1: Fetch lookup data
+    console.log('📚 Loading lookup data...');
+    const [studentsSnap, phasesSnap, topicsSnap, existingData] = await Promise.all([
+      db.collection('users').get(),
+      db.collection('phases').get(),
+      db.collection('topics').get(),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Student Journey!A:V'
+      }).catch(() => ({ data: { values: [] } }))
+    ]);
+
+    // Build lookup maps
+    const studentsMap = new Map();
+    studentsSnap.forEach(doc => {
+      const data = doc.data();
+      studentsMap.set(doc.id, {
+        name: data.name || 'Unknown',
+        campus: data.campus || '',
+        house: data.house || ''
+      });
+    });
+
+    const phasesMap = new Map();
+    phasesSnap.forEach(doc => {
+      const data = doc.data();
+      phasesMap.set(doc.id, data.name || 'Unknown Phase');
+    });
+
+    const topicsMap = new Map();
+    topicsSnap.forEach(doc => {
+      const data = doc.data();
+      topicsMap.set(doc.id, data.title || 'Unknown Topic');
+    });
+
+    // Build existing hashes set for deduplication
+    const existingHashes = new Set();
+    if (existingData.data.values && existingData.data.values.length > 1) {
+      existingData.data.values.slice(1).forEach(row => {
+        if (row[21]) { // Hash column (V)
+          existingHashes.add(row[21]);
+        }
+      });
+    }
+    console.log(`📋 Found ${existingHashes.size} existing records`);
+
+    // Step 2: Fetch goals
+    let goalsQuery = db.collection('daily_goals');
     if (since && since.getTime() > 0) {
-      query = query
+      goalsQuery = goalsQuery
         .where('updated_at', '>', admin.firestore.Timestamp.fromDate(since))
         .orderBy('updated_at', 'asc');
     }
+    const goalsSnapshot = await goalsQuery.get();
+    console.log(`📄 Found ${goalsSnapshot.size} goals`);
 
-    const snapshot = await query.get();
-    console.log(`📄 Found ${snapshot.size} goals to sync`);
-
-    if (snapshot.size === 0) {
-      return 0;
-    }
-
-    const values = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return [
-        data.created_at?.toDate().toLocaleDateString('en-IN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit'
-        }) || '',
-        data.student_id || '',
-        data.student_name || '',
-        data.goal_text || '',
-        data.target_percentage || '',
-        data.status || '',
-        data.reviewed_by || '',
-        data.mentor_comment || '',
-        data.campus || '',
-        data.house || '',
-        doc.id // Goal ID for reference
-      ];
-    });
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Goals!A:K',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values }
-    });
-
-    console.log(`✅ Synced ${values.length} goals`);
-    return values.length;
-  } catch (error) {
-    console.error('❌ Error syncing goals:', error);
-    throw error;
-  }
-}
-
-/**
- * Sync reflections to Google Sheets
- */
-async function syncReflections(sheets, since) {
-  console.log('\n📝 Syncing reflections...');
-  
-  try {
-    let query = db.collection('daily_reflections');
-    
+    // Step 3: Fetch reflections
+    let reflectionsQuery = db.collection('daily_reflections');
     if (since && since.getTime() > 0) {
-      query = query
+      reflectionsQuery = reflectionsQuery
         .where('updated_at', '>', admin.firestore.Timestamp.fromDate(since))
         .orderBy('updated_at', 'asc');
     }
+    const reflectionsSnapshot = await reflectionsQuery.get();
+    console.log(`📄 Found ${reflectionsSnapshot.size} reflections`);
 
-    const snapshot = await query.get();
-    console.log(`📄 Found ${snapshot.size} reflections to sync`);
-
-    if (snapshot.size === 0) {
-      return 0;
-    }
-
-    const values = snapshot.docs.map(doc => {
+    // Build reflection lookup by goal_id
+    const reflectionsByGoalId = new Map();
+    reflectionsSnapshot.forEach(doc => {
       const data = doc.data();
-      return [
-        data.created_at?.toDate().toLocaleDateString('en-IN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit'
-        }) || '',
-        data.student_id || '',
-        data.student_name || '',
-        data.goal_id || '',
-        JSON.stringify(data.reflection_answers || {}),
-        data.status || '',
-        data.mentor_notes || '',
-        data.campus || '',
-        doc.id // Reflection ID
-      ];
-    });
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Reflections!A:I',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values }
-    });
-
-    console.log(`✅ Synced ${values.length} reflections`);
-    return values.length;
-  } catch (error) {
-    console.error('❌ Error syncing reflections:', error);
-    throw error;
-  }
-}
-
-/**
- * Sync logins (attendance) to Google Sheets
- */
-async function syncLogins(sheets, since) {
-  console.log('\n👥 Syncing logins...');
-  
-  try {
-    // Get dates to sync
-    const today = new Date();
-    const sinceDate = since && since.getTime() > 0 ? since : new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    let allLogins = [];
-
-    // Iterate through dates
-    for (let date = new Date(sinceDate); date <= today; date.setDate(date.getDate() + 1)) {
-      const dateStr = date.toISOString().split('T')[0];
-      
-      try {
-        const loginsSnapshot = await db.collection('daily_logins')
-          .doc(dateStr)
-          .collection('logins')
-          .get();
-
-        loginsSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          allLogins.push([
-            data.date || dateStr,
-            data.user_name || '',
-            data.user_email || '',
-            data.campus || '',
-            data.house || '',
-            data.role || '',
-            data.discord_user_id || '',
-            data.login_time?.toDate().toLocaleTimeString('en-IN', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            }) || '',
-            doc.id // User ID
-          ]);
+      if (data.goal_id) {
+        reflectionsByGoalId.set(data.goal_id, {
+          id: doc.id,
+          ...data
         });
-      } catch (error) {
-        // Date collection might not exist, continue
-        console.log(`No logins for ${dateStr}`);
       }
-    }
+    });
 
-    console.log(`📄 Found ${allLogins.length} logins to sync`);
+    // Step 4: Build rows
+    const newRows = [];
+    goalsSnapshot.forEach(doc => {
+      const goal = doc.data();
+      const reflection = reflectionsByGoalId.get(doc.id);
+      
+      // Generate hash for deduplication
+      const hash = `${doc.id}_${reflection?.id || 'NO_REFL'}`;
+      
+      if (existingHashes.has(hash)) {
+        return; // Skip duplicate
+      }
 
-    if (allLogins.length === 0) {
+      const student = studentsMap.get(goal.student_id) || {};
+      const phaseName = phasesMap.get(goal.phase_id) || '';
+      const topicName = topicsMap.get(goal.topic_id) || '';
+      
+      // Calculate week number
+      const createdDate = goal.created_at?.toDate();
+      const weekNumber = createdDate ? Math.ceil(
+        (createdDate - new Date(createdDate.getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000)
+      ) : '';
+
+      const answers = reflection?.reflection_answers || {};
+
+      newRows.push([
+        // Timeline (A-G)
+        createdDate?.toLocaleDateString('en-IN', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }) || '',
+        student.name || '',
+        student.campus || '',
+        student.house || '',
+        phaseName,
+        topicName,
+        weekNumber,
+        
+        // Goal data (H-L)
+        goal.goal_text || '',
+        goal.target_percentage || '',
+        goal.status || '',
+        goal.reviewed_by || '',
+        goal.reviewed_at?.toDate().toLocaleDateString('en-IN') || '',
+        
+        // Reflection data (M-T)
+        answers.workedWell || answers.worked_well || '',
+        answers.howAchieved || answers.how_achieved || '',
+        answers.keyLearning || answers.key_learning || '',
+        answers.challenges || '',
+        reflection?.achieved_percentage || '',
+        reflection?.status || '',
+        reflection?.mentor_assessment || '',
+        reflection?.reviewed_by || '',
+        
+        // IDs (U-V)
+        doc.id, // Goal ID
+        reflection?.id || '', // Reflection ID
+        hash // Sync hash for deduplication
+      ]);
+    });
+
+    if (newRows.length === 0) {
+      console.log('✅ No new records to sync');
       return 0;
     }
 
+    // Step 5: Append to sheet
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Attendance!A:I',
+      range: 'Student Journey!A:V',
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: allLogins }
+      requestBody: { values: newRows }
     });
 
-    console.log(`✅ Synced ${allLogins.length} logins`);
-    return allLogins.length;
+    console.log(`✅ Synced ${newRows.length} journey records`);
+    return newRows.length;
   } catch (error) {
-    console.error('❌ Error syncing logins:', error);
+    console.error('❌ Error syncing student journey:', error);
     throw error;
   }
 }
+
+// Login sync removed - goal submission itself proves login activity
 
 /**
  * Main sync function
@@ -322,9 +309,7 @@ async function main() {
 
     // Sync data
     const stats = {
-      goals: await syncGoals(sheets, lastSync),
-      reflections: await syncReflections(sheets, lastSync),
-      logins: await syncLogins(sheets, lastSync)
+      journey: await syncStudentJourney(sheets, lastSync)
     };
 
     // Update metadata
@@ -334,10 +319,7 @@ async function main() {
     console.log('\n' + '='.repeat(50));
     console.log('✅ SYNC COMPLETE');
     console.log('='.repeat(50));
-    console.log(`Goals synced: ${stats.goals}`);
-    console.log(`Reflections synced: ${stats.reflections}`);
-    console.log(`Logins synced: ${stats.logins}`);
-    console.log(`Total: ${stats.goals + stats.reflections + stats.logins} records`);
+    console.log(`Journey records synced: ${stats.journey}`);
     console.log('='.repeat(50) + '\n');
 
     process.exit(0);
