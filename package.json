@@ -45,6 +45,7 @@
   "scripts": {
     "start": "react-scripts start",
     "dev": "react-scripts start",
+  "scan:secrets": "node scripts/scan-secrets.js",
     "prebuild": "node scripts/extractFeatures.js",
     "build": "react-scripts build",
     "build:production": "cp .env.production .env && npm run build",
