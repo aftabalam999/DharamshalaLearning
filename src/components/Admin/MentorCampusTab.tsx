@@ -721,7 +721,7 @@ const handleGoalApproval = async (goalId: string, status: 'approved' | 'reviewed
                   const hasPendingItems = pendingGoals.length > 0 || pendingReflections.length > 0;
 
                   return (
-                    <div key={student.id} className={`bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
+                    <div key={student.id} className={`bg-white rounded-lg shadow p-3 md:py-3 md:px-1 hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
                       hasPendingItems ? 'border-l-yellow-400 bg-yellow-50' : 'border-l-gray-200'
                     }`} onClick={() => selectUser(student)}>
                       <div className="flex items-center justify-between mb-2">
